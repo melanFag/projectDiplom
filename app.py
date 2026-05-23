@@ -209,9 +209,12 @@ def objective_and_metrics(x: np.ndarray, df: pd.DataFrame, mode: str, weights: d
         C0 = max(C * max(float(r["Q_min"]), 1.0) * C0_factor, 1e-6)
         
         F2_i = (
-            weights["alpha"] * (D_fuzzy - Q)**2 + weights["beta"] * (L_fuzzy - L)**2 +
-            weights["gamma"] * (B**2) + weights["delta"] * ((SS - I)**2) +
-            weights["lambda"] * ((R - R0)**2) + weights["theta"] * ((C * Q - C0)**2)
+            weights["alpha"] * (D_fuzzy - Q)**2 + 
+            weights["beta"] * (L_fuzzy - L)**2 +
+            weights["gamma"] * (B**2) + 
+            weights["delta"] * ((SS - I)**2) +
+            weights["lambda"] * ((R - R0)**2 * 1000) + 
+            weights["theta"] * (((C * Q - C0) / 1000.0)**2) 
         )
 
         F3_i = ((Q + SS - B) * R * K) / max(D_fuzzy + L, 1e-6)
