@@ -69,7 +69,7 @@ CONSTANT_PARAM_COLUMNS = [
     "T_max", "A", "G", "Fi_cost", "Y_prod", "Y_min", "C_max",
 ]
 
-TABLE_COLUMN_ORDER = ["id", "name", *VARIABLE_PARAM_COLUMNS, *CONSTANT_PARAM_COLUMNS]
+TABLE_COLUMN_ORDER = ["id", "name", *VARIABLE_PARAM_COLUMNS]
 
 CONSTANT_PARAM_LABELS = {
     "C": "Цена закупки (C)",
@@ -208,6 +208,30 @@ def normalize_inventory_df(df: pd.DataFrame) -> pd.DataFrame:
     normalized = pd.DataFrame(rows)
     normalized.insert(0, "id", pd.to_numeric(df["id"], errors="coerce") if "id" in df.columns else pd.Series([pd.NA] * len(normalized)))
     return normalized[SCHEMA_COLUMNS]
+
+def merge_editor_df(full_df: pd.DataFrame, visible_df: pd.DataFrame) -> pd.DataFrame:
+    full_norm = normalize_inventory_df(full_df)
+    visible = visible_df.copy()
+
+    for col in TABLE_COLUMN_ORDER:
+        if col not in visible.columns:
+            visible[col] = pd.NA if col == "id" else DEFAULTS[col]
+
+    merged_rows = []
+    for i in range(len(visible)):
+        if i < len(full_norm):
+            row_data = full_norm.iloc[i].to_dict()
+        else:
+            row_data = dict(DEFAULTS)
+            row_data["id"] = pd.NA
+
+        for col in TABLE_COLUMN_ORDER:
+            row_data[col] = visible.iloc[i][col]
+        merged_rows.append(row_data)
+
+    if not merged_rows:
+        return pd.DataFrame(columns=SCHEMA_COLUMNS)
+    return normalize_inventory_df(pd.DataFrame(merged_rows))
 
 def load_inventory_df() -> pd.DataFrame:
     seed_database()
@@ -568,14 +592,16 @@ column_config = {
     "C_max": st.column_config.NumberColumn("Макс. цена (C_max)", min_value=0.0),
 }
 
-edited_df = st.data_editor(
-    sidebar_df,
+visible_table_df = sidebar_df[TABLE_COLUMN_ORDER].copy()
+edited_visible_df = st.data_editor(
+    visible_table_df,
     num_rows="dynamic",
     hide_index=True,
     column_config=column_config,
     column_order=TABLE_COLUMN_ORDER,
     use_container_width=True,
 )
+edited_df = merge_editor_df(sidebar_df, edited_visible_df)
 
 db_col1, db_col2, _ = st.columns([1.5, 2, 5])
 with db_col1:
