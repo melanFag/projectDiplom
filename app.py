@@ -347,9 +347,9 @@ def validate_inputs(df_input: pd.DataFrame, budget: float, capacity: float) -> l
             if pd.isna(row.get(c)) or not np.isfinite(float(row.get(c))):
                 errors.append(f"🔴 **{name}**: поле `{c}` содержит некорректное значение.")
         
-        q_max, ss_max, d = float(row["Q_max"]), float(row["SS_max"]), float(row["D"])
-        if q_max + ss_max < d:
-            errors.append(f"🔴 **{name}**: Q_max + SS_max = {q_max + ss_max:.2f} не покрывает спрос D = {d:.2f}.")
+        q_max, ss_max, i_min, b_max, d = float(row["Q_max"]), float(row["SS_max"]), float(row["I_min"]), float(row["B_max"]), float(row["D"])
+        if q_max + ss_max + i_min + b_max < d:
+            errors.append(f"🔴 **{name}**: Q_max + SS_max + I_min + B_max = {q_max + ss_max + i_min + b_max:.2f} не покрывает спрос D = {d:.2f}.")
 
     min_budget_needed = float((df_input["C"] * df_input["Q_min"]).sum())
     if min_budget_needed > budget:
@@ -393,7 +393,7 @@ def run_optimization(df_input: pd.DataFrame, mode: str, globals_cfg: dict, weigh
 
     for i in range(n):
         def bal_con(x, i=i):
-            return (x[i * 4] + x[i * 4 + 2]) - x[i * 4 + 3] - float(df_input.iloc[i]["D"])
+            return (x[i * 4 + 1] + x[i * 4] + x[i * 4 + 2]) - x[i * 4 + 3] - float(df_input.iloc[i]["D"])
         cons.append({"type": "ineq", "fun": bal_con})
 
         row = df_input.iloc[i]
@@ -689,7 +689,6 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
         st.divider()
         st.write("#### Анализ эффективности по всем целевым критериям (F1 - F6)")
         
-        # Вместо радарной диаграммы строим строгую академическую Bar-таблицу
         metrics_df = pd.DataFrame({
             "Критерий": ["F1 (Совокупные затраты)", "F2 (Потери неопределенности)", "F3 (Уровень обеспечения)", "F4 (Риск сбоев)", "F5 (Транспорт и склад)", "F6 (Эффективность склада)"],
             "Значение": [metrics["F1"], metrics["F2"], metrics["F3"], metrics["F4"], metrics["F5"], metrics["F6"]],
