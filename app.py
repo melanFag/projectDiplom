@@ -29,7 +29,7 @@ with st.expander("📖 Спецификация параметров матем�
     * $C_i, H_i, S_i, T_i, P_i, R_i, K_i, D_i, L_i, W_i$ и весовые коэффициенты.
     """)
 
-DB_NAME = "kadvi_model.db"
+DB_NAME = Path(__file__).with_name("kadvi_model.db")
 
 SCHEMA_COLUMNS = [
     "id", "name", "C", "H", "S", "T", "P", "R", "K", "D", "D_fuzzy_min", "D_fuzzy_max",
@@ -58,6 +58,53 @@ DEFAULTS = {
     "d_dist": 0.0, "T_max": 0.0, "A": 0.0, "G": 0.0, "Fi_cost": 0.0, "U_max": 1.0,
     "Y_prod": 0.0, "Y_min": 0.0, "C_max": 0.0,
 }
+
+VARIABLE_PARAM_COLUMNS = [
+    "Q_min", "Q_max", "I_min", "SS_min", "SS_max", "B_max", "N_max", "M_max", "U_max",
+]
+
+CONSTANT_PARAM_COLUMNS = [
+    "C", "H", "S", "T", "P", "R", "K", "D", "D_fuzzy_min", "D_fuzzy_max",
+    "L", "L_fuzzy_min", "L_fuzzy_max", "W_i", "V", "E", "Z", "d_dist",
+    "T_max", "A", "G", "Fi_cost", "Y_prod", "Y_min", "C_max",
+]
+
+TABLE_COLUMN_ORDER = ["id", "name", *VARIABLE_PARAM_COLUMNS]
+
+CONSTANT_PARAM_LABELS = {
+    "C": "Цена закупки (C)",
+    "H": "Затраты хранения (H)",
+    "S": "Оформление заказа (S)",
+    "T": "Транспортные расходы (T)",
+    "P": "Вероятность задержки (P)",
+    "R": "Надежность поставщика (R)",
+    "K": "Качество поставки (K)",
+    "D": "Спрос (D)",
+    "D_fuzzy_min": "Нечеткий спрос min",
+    "D_fuzzy_max": "Нечеткий спрос max",
+    "L": "Срок поставки (L)",
+    "L_fuzzy_min": "Нечеткий срок min",
+    "L_fuzzy_max": "Нечеткий срок max",
+    "W_i": "Вместимость склада (W_i)",
+    "V": "Потери от дефицита (V)",
+    "E": "Эксплуатационные затраты (E)",
+    "Z": "Риск поставщика (Z)",
+    "d_dist": "Расстояние доставки (d)",
+    "T_max": "Макс. транспортные затраты",
+    "A": "Стоимость/км (A)",
+    "G": "Погрузка-разгрузка (G)",
+    "Fi_cost": "Оборудование (Fi)",
+    "Y_prod": "Производительность склада (Y)",
+    "Y_min": "Мин. производительность",
+    "C_max": "Макс. цена (C_max)",
+}
+
+CONSTANT_PARAM_GROUPS = [
+    ("Закупка и поставщик", ["C", "H", "S", "T", "P", "R", "K"]),
+    ("Спрос и сроки", ["D", "D_fuzzy_min", "D_fuzzy_max", "L", "L_fuzzy_min", "L_fuzzy_max"]),
+    ("Склад и логистика", ["W_i", "V", "E", "Z", "d_dist", "T_max", "A", "G", "Fi_cost"]),
+    ("Производительность", ["Y_prod", "Y_min", "C_max"]),
+]
 
 def seed_rows():
     rows = [
@@ -121,6 +168,12 @@ def normalize_text(value, default=""):
     text = str(value).strip()
     return text if text else default
 
+def row_id_label(row: pd.Series, fallback_index: int) -> str:
+    value = row.get("id", pd.NA)
+    if pd.isna(value):
+        return f"новая-{fallback_index + 1}"
+    return str(int(value))
+
 def coerce_numeric(series: pd.Series, default: float) -> pd.Series:
     out = pd.to_numeric(series, errors="coerce")
     return out.fillna(default).astype(float)
@@ -156,6 +209,30 @@ def normalize_inventory_df(df: pd.DataFrame) -> pd.DataFrame:
     normalized.insert(0, "id", pd.to_numeric(df["id"], errors="coerce") if "id" in df.columns else pd.Series([pd.NA] * len(normalized)))
     return normalized[SCHEMA_COLUMNS]
 
+def merge_editor_df(full_df: pd.DataFrame, visible_df: pd.DataFrame) -> pd.DataFrame:
+    full_norm = normalize_inventory_df(full_df)
+    visible = visible_df.copy()
+
+    for col in TABLE_COLUMN_ORDER:
+        if col not in visible.columns:
+            visible[col] = pd.NA if col == "id" else DEFAULTS[col]
+
+    merged_rows = []
+    for i in range(len(visible)):
+        if i < len(full_norm):
+            row_data = full_norm.iloc[i].to_dict()
+        else:
+            row_data = dict(DEFAULTS)
+            row_data["id"] = pd.NA
+
+        for col in TABLE_COLUMN_ORDER:
+            row_data[col] = visible.iloc[i][col]
+        merged_rows.append(row_data)
+
+    if not merged_rows:
+        return pd.DataFrame(columns=SCHEMA_COLUMNS)
+    return normalize_inventory_df(pd.DataFrame(merged_rows))
+
 def load_inventory_df() -> pd.DataFrame:
     seed_database()
     with sqlite3.connect(DB_NAME) as conn:
@@ -164,7 +241,7 @@ def load_inventory_df() -> pd.DataFrame:
 
 def save_inventory_df(df: pd.DataFrame, conn: sqlite3.Connection | None = None, append: bool = False) -> None:
     df = normalize_inventory_df(df)
-    records = df.drop(columns=["id"]).copy()
+    records = df.copy()
     close_conn = False
     if conn is None:
         conn = sqlite3.connect(DB_NAME)
@@ -172,9 +249,25 @@ def save_inventory_df(df: pd.DataFrame, conn: sqlite3.Connection | None = None, 
     try:
         ensure_schema(conn)
         if not append: conn.execute("DELETE FROM inventory")
-        cols = [c for c in SCHEMA_COLUMNS if c != "id"]
+        cols = SCHEMA_COLUMNS
         sql = f"INSERT INTO inventory ({', '.join(cols)}) VALUES ({', '.join(['?'] * len(cols))})"
-        data = [tuple([normalize_text(r[c], "Новая позиция") if c == "name" else (None if pd.isna(r[c]) else float(r[c])) for c in cols]) for _, r in records.iterrows()]
+        valid_ids = pd.to_numeric(records["id"], errors="coerce").dropna().astype(int)
+        id_counts = valid_ids.value_counts()
+        data = []
+        for _, r in records.iterrows():
+            row_values = []
+            for c in cols:
+                if c == "id":
+                    if pd.isna(r[c]):
+                        row_values.append(None)
+                    else:
+                        id_value = int(r[c])
+                        row_values.append(id_value if id_counts.get(id_value, 0) == 1 else None)
+                elif c == "name":
+                    row_values.append(normalize_text(r[c], "Новая позиция"))
+                else:
+                    row_values.append(None if pd.isna(r[c]) else float(r[c]))
+            data.append(tuple(row_values))
         conn.executemany(sql, data)
         conn.commit()
     finally:
@@ -208,7 +301,6 @@ def objective_and_metrics(x: np.ndarray, df: pd.DataFrame, mode: str, weights: d
         R0, C0_factor = float(weights.get("R0", 0.95)), float(weights.get("C0_factor", 0.9))
         C0 = max(C * max(float(r["Q_min"]), 1.0) * C0_factor, 1e-6)
         
-        # Масштабирование F2 для защиты от "Взрыва градиента"
         F2_i = (
             weights["alpha"] * (D_fuzzy - Q)**2 + 
             weights["beta"] * (L_fuzzy - L)**2 +
@@ -231,7 +323,7 @@ def objective_and_metrics(x: np.ndarray, df: pd.DataFrame, mode: str, weights: d
         metrics["F6"] += F6_i
 
         per_item.append({
-            "Товар": r["name"], "Q": Q, "I": I, "SS": SS, "B": B, "N_i": N_i, "M_i": M_i, 
+            "ID": row_id_label(r, i), "Товар": r["name"], "Q": Q, "I": I, "SS": SS, "B": B, "N_i": N_i, "M_i": M_i, 
             "U_i": U_i, "F1_i": F1_i, "F2_i": F2_i, "F3_i": F3_i, "F4_i": F4_i, "F5_i": F5_i, "F6_i": F6_i,
         })
 
@@ -255,7 +347,6 @@ def validate_inputs(df_input: pd.DataFrame, budget: float, capacity: float) -> l
             if pd.isna(row.get(c)) or not np.isfinite(float(row.get(c))):
                 errors.append(f"🔴 **{name}**: поле `{c}` содержит некорректное значение.")
         
-        # Исправленная валидация (в точности по Zapiska.docx)
         q_max, ss_max, d = float(row["Q_max"]), float(row["SS_max"]), float(row["D"])
         if q_max + ss_max < d:
             errors.append(f"🔴 **{name}**: Q_max + SS_max = {q_max + ss_max:.2f} не покрывает спрос D = {d:.2f}.")
@@ -264,15 +355,20 @@ def validate_inputs(df_input: pd.DataFrame, budget: float, capacity: float) -> l
     if min_budget_needed > budget:
         errors.append(f"💰 **Бюджет**: для закупки минимума требуется {min_budget_needed:,.2f} руб., доступно {budget:,.2f} руб.")
 
+    min_capacity_needed = float(df_input["I_min"].sum())
+    if min_capacity_needed > capacity:
+        errors.append(f"🏭 **Склад**: минимальный запас требует {min_capacity_needed:,.2f} ед. емкости, доступно {capacity:,.2f} ед.")
+
     return errors
 
 def build_bounds(df_input: pd.DataFrame) -> tuple[list[tuple[float, float]], list[float]]:
     bounds, x0 = [], []
     for _, row in df_input.iterrows():
         d, q_min, q_max, ss_min, ss_max, i_min, w_i, b_max = float(row["D"]), float(row["Q_min"]), float(row["Q_max"]), float(row["SS_min"]), float(row["SS_max"]), float(row["I_min"]), float(row["W_i"]), float(row["B_max"])
+        u_max = max(float(row["U_max"]), 0.0)
         
         q_lower, q_upper = q_min, max(q_min, q_max)
-        i_lower, i_upper = i_min, max(i_min, w_i)
+        i_lower, i_upper = i_min, max(i_min, w_i * u_max)
         ss_lower, ss_upper = ss_min, min(ss_max, w_i)
         if ss_upper < ss_lower: ss_upper = ss_lower
         b_lower, b_upper = 0.0, min(b_max, max(d, 0.0))
@@ -294,18 +390,71 @@ def run_optimization(df_input: pd.DataFrame, mode: str, globals_cfg: dict, weigh
     cons = []
     cons.append({"type": "ineq", "fun": lambda x: (globals_cfg["F_budget"] - float(sum(x[i * 4] * float(df_input.iloc[i]["C"]) for i in range(n)))) / SCALE})
     cons.append({"type": "ineq", "fun": lambda x: (globals_cfg["W_total"] - float(sum(x[i * 4 + 1] for i in range(n)))) / 1000.0})
-    cons.append({"type": "ineq", "fun": lambda x: (globals_cfg["SS_total_max"] - float(sum(x[i * 4 + 2] for i in range(n)))) / 1000.0})
-    cons.append({"type": "ineq", "fun": lambda x: (globals_cfg["Q_total_max"] - float(sum(x[i * 4] for i in range(n)))) / 1000.0})
-    cons.append({"type": "ineq", "fun": lambda x: globals_cfg["B_risk_max"] - float(sum(x[i * 4 + 3] * float(df_input.iloc[i]["V"]) for i in range(n)))})
-    cons.append({"type": "ineq", "fun": lambda x: (globals_cfg["T_total_max"] - float(sum(float(df_input.iloc[i]["T"]) * x[i * 4] for i in range(n)))) / SCALE})
 
     for i in range(n):
         def bal_con(x, i=i):
-            # Исправленное уравнение баланса (в точности по Zapiska.docx)
             return (x[i * 4] + x[i * 4 + 2]) - x[i * 4 + 3] - float(df_input.iloc[i]["D"])
         cons.append({"type": "ineq", "fun": bal_con})
 
+        row = df_input.iloc[i]
+        d = float(row["D"])
+        n_max = max(float(row["N_max"]), 1e-9)
+        m_max = max(float(row["M_max"]), 1e-9)
+        t_max = float(row["T_max"])
+
+        def n_con(x, i=i, d=d, n_max=n_max):
+            return n_max - safe_div(d, max(float(x[i * 4]), 1e-9))
+        cons.append({"type": "ineq", "fun": n_con})
+
+        def m_con(x, i=i, d=d, m_max=m_max):
+            return m_max - safe_div(d, max(float(x[i * 4]), 1e-9))
+        cons.append({"type": "ineq", "fun": m_con})
+
+        if t_max > 0:
+            def t_con(x, i=i, t_max=t_max):
+                return (t_max - float(df_input.iloc[i]["T"]) * float(x[i * 4])) / SCALE
+            cons.append({"type": "ineq", "fun": t_con})
+
     return minimize(objective, np.array(x0, dtype=float), method="SLSQP", bounds=bounds, constraints=cons, options={"maxiter": 3000, "ftol": 1e-9, "disp": False})
+
+def score_single_candidate(candidate_df: pd.DataFrame, mode: str, globals_cfg: dict, weights: dict) -> float:
+    try:
+        result = run_optimization(candidate_df, mode, globals_cfg, weights)
+        if result is not None and result.success:
+            score, _, _ = objective_and_metrics(result.x, candidate_df, mode, weights)
+            return float(score)
+    except Exception:
+        pass
+
+    _, x0 = build_bounds(candidate_df)
+    score, _, _ = objective_and_metrics(np.array(x0, dtype=float), candidate_df, mode, weights)
+    return float(score) + 1e18
+
+def select_best_alternatives(df_input: pd.DataFrame, mode: str, globals_cfg: dict, weights: dict) -> tuple[pd.DataFrame, list[str]]:
+    df = normalize_inventory_df(df_input).copy()
+    if df.empty:
+        return df, []
+
+    df["_name_key"] = df["name"].apply(lambda value: normalize_text(value, "Новая позиция").casefold())
+    selected_indices, notes = [], []
+
+    for _, group in df.groupby("_name_key", sort=False):
+        if len(group) == 1:
+            selected_indices.append(group.index[0])
+            continue
+
+        scored_candidates = []
+        for idx, row in group.iterrows():
+            candidate_df = group.loc[[idx], SCHEMA_COLUMNS].reset_index(drop=True)
+            scored_candidates.append((score_single_candidate(candidate_df, mode, globals_cfg, weights), idx))
+
+        _, best_idx = min(scored_candidates, key=lambda item: item[0])
+        selected_indices.append(best_idx)
+        best_row = df.loc[best_idx]
+        notes.append(f"{best_row['name']}: выбран ID {row_id_label(best_row, int(best_idx))} из {len(group)} вариантов")
+
+    selected_df = df.loc[selected_indices, SCHEMA_COLUMNS].reset_index(drop=True)
+    return selected_df, notes
 
 def style_result_table(res_df: pd.DataFrame):
     def color_limits(row):
@@ -326,6 +475,7 @@ def style_result_table(res_df: pd.DataFrame):
     return res_df.style.apply(color_limits, axis=1).format({"Заказ (Q)": "{:.2f}", "Запас (I)": "{:.2f}", "Страх.запас (SS)": "{:.2f}", "Дефицит (B)": "{:.2f}", "Затраты (руб)": "{:,.2f}"})
 
 df_current = load_inventory_df()
+sidebar_df = df_current.copy()
 
 with st.sidebar:
     st.header("Настройки оптимизации")
@@ -335,26 +485,47 @@ with st.sidebar:
     ])
     
     st.divider()
+    with st.expander("Постоянные параметры модели", expanded=True):
+        if sidebar_df.empty:
+            st.warning("Нет позиций для изменения.")
+        else:
+            row_options = list(range(len(sidebar_df)))
+            selected_row_idx = st.selectbox(
+                "Номенклатура",
+                options=row_options,
+                format_func=lambda idx: f"ID {row_id_label(sidebar_df.iloc[idx], idx)} · {normalize_text(sidebar_df.iloc[idx]['name'], f'Строка {idx + 1}')}",
+            )
+
+            for group_name, group_columns in CONSTANT_PARAM_GROUPS:
+                st.markdown(f"**{group_name}**")
+                for col in group_columns:
+                    current_value = float(sidebar_df.at[selected_row_idx, col])
+                    if col in {"P", "R", "K"}:
+                        sidebar_df.at[selected_row_idx, col] = st.number_input(
+                            CONSTANT_PARAM_LABELS[col],
+                            min_value=0.0,
+                            max_value=1.0,
+                            value=current_value,
+                            step=0.01,
+                            format="%.4f",
+                            key=f"const_{selected_row_idx}_{col}",
+                        )
+                    else:
+                        sidebar_df.at[selected_row_idx, col] = st.number_input(
+                            CONSTANT_PARAM_LABELS[col],
+                            min_value=0.0,
+                            value=current_value,
+                            step=1.0,
+                            format="%.4f",
+                            key=f"const_{selected_row_idx}_{col}",
+                        )
+
+    st.divider()
     st.subheader("Глобальные параметры ввода")
     f_budget_str = st.text_input("Общий бюджет закупок (F), руб.", value="5000000")
     try: F_budget = float(f_budget_str.replace(" ", "").replace(",", "."))
     except ValueError: F_budget = 5_000_000.0
-    W_total = st.number_input("Общая емкость склада (W)", min_value=0.0, value=float(df_current["W_i"].sum() * 1.5), step=100.0)
-
-    st.divider()
-    st.subheader("Глобальные лимиты (Рассчитываются по формулам)")
-    Q_total_max = float(df_current["Q_max"].sum())
-    SS_total_max = float(df_current["SS_max"].sum())
-    B_risk_max = float((df_current["V"] * df_current["B_max"]).sum())
-    T_total_max = float((df_current["T"] * df_current["Q_max"]).sum())
-    P_total_max = float((df_current["P"] * df_current["L"]).sum())
-    C_total_max = float(df_current["C_max"].sum())
-    Y_total_min = float(df_current["Y_min"].sum())
-    
-    st.metric("Лимит объёма заказа (∑Q_max)", f"{Q_total_max:,.2f}")
-    st.metric("Лимит страхового запаса (∑SS_max)", f"{SS_total_max:,.2f}")
-    st.metric("Лимит риска дефицита (∑V_i * B_i)", f"{B_risk_max:,.2f}")
-    st.metric("Транспортный лимит (∑T_i * Q_max)", f"{T_total_max:,.2f}")
+    W_total = st.number_input("Общая емкость склада (W)", min_value=0.0, value=float(sidebar_df["W_i"].sum() * 1.5), step=100.0)
     
     weights = {"alpha": 0.0, "beta": 0.0, "gamma": 0.0, "delta": 0.0, "lambda": 0.0, "theta": 0.0, "R0": 0.95, "C0_factor": 0.9}
     if mode.startswith("F2"):
@@ -378,25 +549,59 @@ with st.sidebar:
             st.error("Ошибка при чтении Excel файла. Проверьте формат.")
 
 globals_cfg = {
-    "F_budget": F_budget, "W_total": W_total, "Q_total_max": Q_total_max, "SS_total_max": SS_total_max,
-    "B_risk_max": B_risk_max, "T_total_max": T_total_max, "P_total_max": P_total_max, 
-    "C_total_max": C_total_max, "Y_total_min": Y_total_min,
+    "F_budget": F_budget, "W_total": W_total,
 }
 
 st.write("### Исходные данные номенклатуры ПАО «КАДВИ»")
 
 column_config = {
     "id": st.column_config.NumberColumn("ID", disabled=True), "name": st.column_config.TextColumn("Наименование", required=True),
-    "C": st.column_config.NumberColumn("Цена (C)", min_value=0.0), "H": st.column_config.NumberColumn("Хранение (H)", min_value=0.0),
-    "S": st.column_config.NumberColumn("Оформление (S)", min_value=0.0), "T": st.column_config.NumberColumn("Транспорт (T)", min_value=0.0),
-    "P": st.column_config.NumberColumn("Вер-ть задержки (P)", min_value=0.0, max_value=1.0), "R": st.column_config.NumberColumn("Надежность (R)", min_value=0.0, max_value=1.0),
-    "K": st.column_config.NumberColumn("Качество (K)", min_value=0.0, max_value=1.0), "D": st.column_config.NumberColumn("Спрос (D)", min_value=0.0),
-    "W_i": st.column_config.NumberColumn("Вместимость (W_i)", min_value=0.0), "Q_min": st.column_config.NumberColumn("Q_min", min_value=0.0),
-    "Q_max": st.column_config.NumberColumn("Q_max", min_value=0.0), "SS_min": st.column_config.NumberColumn("SS_min", min_value=0.0),
-    "SS_max": st.column_config.NumberColumn("SS_max", min_value=0.0)
+    "Q_min": st.column_config.NumberColumn("Мин. заказ (Q_min)", min_value=0.0),
+    "Q_max": st.column_config.NumberColumn("Макс. заказ (Q_max)", min_value=0.0),
+    "I_min": st.column_config.NumberColumn("Мин. запас (I_min)", min_value=0.0),
+    "SS_min": st.column_config.NumberColumn("Мин. страх. запас (SS_min)", min_value=0.0),
+    "SS_max": st.column_config.NumberColumn("Макс. страх. запас (SS_max)", min_value=0.0),
+    "B_max": st.column_config.NumberColumn("Макс. дефицит (B_max)", min_value=0.0),
+    "N_max": st.column_config.NumberColumn("Макс. поставок (N_max)", min_value=0.0),
+    "M_max": st.column_config.NumberColumn("Макс. рейсов (M_max)", min_value=0.0),
+    "U_max": st.column_config.NumberColumn("Макс. загрузка (U_max)", min_value=0.0),
+    "C": st.column_config.NumberColumn("Цена (C)", min_value=0.0),
+    "H": st.column_config.NumberColumn("Хранение (H)", min_value=0.0),
+    "S": st.column_config.NumberColumn("Оформление (S)", min_value=0.0),
+    "T": st.column_config.NumberColumn("Транспорт (T)", min_value=0.0),
+    "P": st.column_config.NumberColumn("Вер-ть задержки (P)", min_value=0.0, max_value=1.0),
+    "R": st.column_config.NumberColumn("Надежность (R)", min_value=0.0, max_value=1.0),
+    "K": st.column_config.NumberColumn("Качество (K)", min_value=0.0, max_value=1.0),
+    "D": st.column_config.NumberColumn("Спрос (D)", min_value=0.0),
+    "D_fuzzy_min": st.column_config.NumberColumn("Нечеткий спрос min", min_value=0.0),
+    "D_fuzzy_max": st.column_config.NumberColumn("Нечеткий спрос max", min_value=0.0),
+    "L": st.column_config.NumberColumn("Срок поставки (L)", min_value=0.0),
+    "L_fuzzy_min": st.column_config.NumberColumn("Нечеткий срок min", min_value=0.0),
+    "L_fuzzy_max": st.column_config.NumberColumn("Нечеткий срок max", min_value=0.0),
+    "W_i": st.column_config.NumberColumn("Вместимость (W_i)", min_value=0.0),
+    "V": st.column_config.NumberColumn("Потери дефицита (V)", min_value=0.0),
+    "E": st.column_config.NumberColumn("Экспл. затраты (E)", min_value=0.0),
+    "Z": st.column_config.NumberColumn("Риск поставщика (Z)", min_value=0.0),
+    "d_dist": st.column_config.NumberColumn("Расстояние (d)", min_value=0.0),
+    "T_max": st.column_config.NumberColumn("Макс. транспорт (T_max)", min_value=0.0),
+    "A": st.column_config.NumberColumn("Стоимость/км (A)", min_value=0.0),
+    "G": st.column_config.NumberColumn("Погрузка-разгрузка (G)", min_value=0.0),
+    "Fi_cost": st.column_config.NumberColumn("Оборудование (Fi)", min_value=0.0),
+    "Y_prod": st.column_config.NumberColumn("Производительность (Y)", min_value=0.0),
+    "Y_min": st.column_config.NumberColumn("Мин. производительность", min_value=0.0),
+    "C_max": st.column_config.NumberColumn("Макс. цена (C_max)", min_value=0.0),
 }
 
-edited_df = st.data_editor(df_current, num_rows="dynamic", hide_index=True, column_config=column_config, use_container_width=True)
+visible_table_df = sidebar_df[TABLE_COLUMN_ORDER].copy()
+edited_visible_df = st.data_editor(
+    visible_table_df,
+    num_rows="dynamic",
+    hide_index=True,
+    column_config=column_config,
+    column_order=TABLE_COLUMN_ORDER,
+    use_container_width=True,
+)
+edited_df = merge_editor_df(sidebar_df, edited_visible_df)
 
 db_col1, db_col2, _ = st.columns([1.5, 2, 5])
 with db_col1:
@@ -413,28 +618,33 @@ st.divider()
 
 if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕТ", type="primary"):
     if len(edited_df) == 0: st.stop()
+
+    prepared_df = normalize_inventory_df(edited_df)
+    optimization_df, selection_notes = select_best_alternatives(prepared_df, mode, globals_cfg, weights)
     
-    validation_errors = validate_inputs(edited_df, F_budget, W_total)
+    validation_errors = validate_inputs(optimization_df, F_budget, W_total)
     if validation_errors:
         for err in validation_errors: st.error(err)
         st.stop()
 
     with st.spinner("Синтез оптимального решения..."):
-        result = run_optimization(edited_df, mode, globals_cfg, weights)
+        result = run_optimization(optimization_df, mode, globals_cfg, weights)
 
     if result is not None and result.success:
-        raw_total, metrics, per_item = objective_and_metrics(result.x, edited_df, mode, weights)
+        raw_total, metrics, _ = objective_and_metrics(result.x, optimization_df, mode, weights)
         displayed_value = -raw_total if mode.startswith(("F3", "F6")) else raw_total
 
         st.success(f"🎯 Оптимальный план найден. Значение целевой функции: {displayed_value:,.4f}")
+        if selection_notes:
+            st.info("Лучшие альтернативы по повторяющимся наименованиям: " + "; ".join(selection_notes) + ".")
 
         res_data = []
-        for i in range(len(edited_df)):
+        for i in range(len(optimization_df)):
             idx = i * 4
-            row = edited_df.iloc[i]
+            row = optimization_df.iloc[i]
             Q_val, I_val, SS_val, B_val = float(result.x[idx]), float(result.x[idx + 1]), float(result.x[idx + 2]), float(result.x[idx + 3])
             res_data.append({
-                "Товар": normalize_text(row["name"], f"Строка {i + 1}"), "Заказ (Q)": Q_val, "Запас (I)": I_val,
+                "ID": row_id_label(row, i), "Товар": normalize_text(row["name"], f"Строка {i + 1}"), "Заказ (Q)": Q_val, "Запас (I)": I_val,
                 "Страх.запас (SS)": SS_val, "Дефицит (B)": B_val, "Затраты (руб)": float(row["C"]) * Q_val,
                 "Транспорт (руб)": float(row["T"]) * Q_val, "Риск (руб)": float(row["V"]) * B_val,
                 "Макс. ВМ (W_i)": float(row["W_i"]), "Бюджет_Лимит": F_budget,
@@ -451,10 +661,10 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
 
         st.write("#### Текстовое заключение по оптимальному варианту:")
         for _, row in res_df.iterrows():
-            st.info(f"Для детали **{row['Товар']}** оптимально разместить заказ на **{row['Заказ (Q)']:.0f} ед.** При этом текущий запас составит **{row['Запас (I)']:.0f} ед.**, а резервный (страховой) запас: **{row['Страх.запас (SS)']:.0f} ед.** Возможный объем дефицита сведен к {row['Дефицит (B)']:.0f} ед.")
+            st.info(f"Для детали **{row['Товар']}** (ID **{row['ID']}**) оптимально разместить заказ на **{row['Заказ (Q)']:.0f} ед.** При этом текущий запас составит **{row['Запас (I)']:.0f} ед.**, а резервный (страховой) запас: **{row['Страх.запас (SS)']:.0f} ед.** Возможный объем дефицита сведен к {row['Дефицит (B)']:.0f} ед.")
 
         st.write("#### Оптимальные параметры управления")
-        st.dataframe(style_result_table(res_df), use_container_width=True, hide_index=True, column_order=["Товар", "Заказ (Q)", "Запас (I)", "Страх.запас (SS)", "Дефицит (B)", "Затраты (руб)", "Транспорт (руб)", "Риск (руб)"])
+        st.dataframe(style_result_table(res_df), use_container_width=True, hide_index=True, column_order=["ID", "Товар", "Заказ (Q)", "Запас (I)", "Страх.запас (SS)", "Дефицит (B)", "Затраты (руб)", "Транспорт (руб)", "Риск (руб)"])
 
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer: res_df.to_excel(writer, index=False, sheet_name="План_закупок")
@@ -479,15 +689,12 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
         st.divider()
         st.write("#### Анализ эффективности по всем целевым критериям (F1 - F6)")
         
+        # Вместо радарной диаграммы строим строгую академическую Bar-таблицу
         metrics_df = pd.DataFrame({
             "Критерий": ["F1 (Совокупные затраты)", "F2 (Потери неопределенности)", "F3 (Уровень обеспечения)", "F4 (Риск сбоев)", "F5 (Транспорт и склад)", "F6 (Эффективность склада)"],
             "Значение": [metrics["F1"], metrics["F2"], metrics["F3"], metrics["F4"], metrics["F5"], metrics["F6"]],
             "Направление оптимизации": ["Минимизация (Min)", "Минимизация (Min)", "Максимизация (Max)", "Минимизация (Min)", "Минимизация (Min)", "Максимизация (Max)"]
         })
         st.dataframe(metrics_df.style.format({"Значение": "{:,.4f}"}), use_container_width=True, hide_index=True)
-
-        st.divider()
-        st.write("#### Развернутая сводка зависимых (расчетных) переменных по позициям")
-        st.dataframe(pd.DataFrame(per_item)[["Товар", "N_i", "M_i", "U_i"]].style.format({"N_i": "{:.2f}", "M_i": "{:.2f}", "U_i": "{:.4f}"}), use_container_width=True, hide_index=True)
     else:
         st.error("❌ Алгоритму не удалось сойтись к решению. Попробуйте ослабить ограничения бюджета или вместимости.")
