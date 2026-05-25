@@ -72,7 +72,19 @@ CONSTANT_PARAM_COLUMNS = [
     "T_max", "A", "G", "Fi_cost", "Y_prod", "Y_min", "C_max",
 ]
 
-TABLE_COLUMN_ORDER = ["id", "name", *VARIABLE_PARAM_COLUMNS]
+TABLE_COLUMN_ORDER = [
+    "id",
+    "name",
+    "Q_min",
+    "Q_max",
+    "I_min",
+    "SS_min",
+    "SS_max",
+    "B_max",
+    "N_max",
+    "M_max",
+    "U_max",
+]
 
 CONSTANT_PARAM_LABELS = {
     "C": "C_i — цена закупки",
@@ -524,12 +536,21 @@ sidebar_df = df_current.copy()
 
 with st.sidebar:
     st.header("Настройки оптимизации")
-    mode = st.selectbox("Выберите целевую функцию:", [
-        "F1: Минимизация совокупных затрат", "F2: Потери от неопределенности", "F3: Макс. уровня обеспечения",
-        "F4: Риск логистических сбоев", "F5: Транспортно-складские расходы", "F6: Макс. эффективности склада",
-    ])
+
+    mode = st.selectbox(
+        "Выберите целевую функцию:",
+        [
+            "F1: Минимизация совокупных затрат",
+            "F2: Потери от неопределенности",
+            "F3: Макс. уровня обеспечения",
+            "F4: Риск логистических сбоев",
+            "F5: Транспортно-складские расходы",
+            "F6: Макс. эффективности склада",
+        ],
+    )
 
     st.divider()
+
     with st.expander("Постоянные параметры модели", expanded=True):
         if sidebar_df.empty:
             st.warning("Нет позиций для изменения.")
@@ -566,26 +587,35 @@ with st.sidebar:
                         )
 
     st.divider()
-    st.subheader("Глобальные параметры ввода")
-    f_budget_str = st.text_input("Общий бюджет закупок (F), руб.", value="5000000")
+
+    st.subheader("Глобальные переменные")
+    f_budget_str = st.text_input("F — общий бюджет закупок", value="5000000")
     try:
         F_budget = float(f_budget_str.replace(" ", "").replace(",", "."))
     except ValueError:
         F_budget = 5_000_000.0
-    W_total = st.number_input("Общая емкость склада (W)", min_value=0.0, value=float(sidebar_df["W_i"].sum() * 1.5), step=100.0)
+
+    W_total = st.number_input(
+        "W — общая емкость склада",
+        min_value=0.0,
+        value=float(sidebar_df["W_i"].sum() * 1.5),
+        step=100.0,
+    )
+
+    st.divider()
 
     weights = {"alpha": 0.0, "beta": 0.0, "gamma": 0.0, "delta": 0.0, "lambda": 0.0, "theta": 0.0, "R0": 0.95, "C0_factor": 0.9}
     if mode.startswith("F2"):
-        st.divider()
-        st.subheader("Весовые коэффициенты (F2)")
-        weights["alpha"] = st.slider("Спрос (alpha)", 0.0, 1.0, 0.30, 0.01)
-        weights["beta"] = st.slider("Сроки (beta)", 0.0, 1.0, 0.20, 0.01)
-        weights["gamma"] = st.slider("Дефицит (gamma)", 0.0, 1.0, 0.10, 0.01)
-        weights["delta"] = st.slider("Страх. запас (delta)", 0.0, 1.0, 0.10, 0.01)
-        weights["lambda"] = st.slider("Надежность (lambda)", 0.0, 1.0, 0.20, 0.01)
-        weights["theta"] = st.slider("Затраты (theta)", 0.0, 1.0, 0.10, 0.01)
+        st.subheader("Весовые коэффициенты F2")
+        weights["alpha"] = st.slider("alpha — спрос", 0.0, 1.0, 0.30, 0.01)
+        weights["beta"] = st.slider("beta — сроки", 0.0, 1.0, 0.20, 0.01)
+        weights["gamma"] = st.slider("gamma — дефицит", 0.0, 1.0, 0.10, 0.01)
+        weights["delta"] = st.slider("delta — страховой запас", 0.0, 1.0, 0.10, 0.01)
+        weights["lambda"] = st.slider("lambda — надежность", 0.0, 1.0, 0.20, 0.01)
+        weights["theta"] = st.slider("theta — затраты", 0.0, 1.0, 0.10, 0.01)
 
     st.divider()
+
     uploaded_file = st.file_uploader("📥 Загрузить БД (Excel)", type=["xlsx"])
     if uploaded_file is not None:
         try:
@@ -596,13 +626,29 @@ with st.sidebar:
             st.error("Ошибка при чтении Excel файла. Проверьте формат.")
 
 globals_cfg = {
-    "F_budget": F_budget, "W_total": W_total,
+    "F_budget": F_budget,
+    "W_total": W_total,
 }
 
 st.write("### Исходные данные номенклатуры ПАО «КАДВИ»")
+st.info("""
+Переменные параметры модели:
+
+Qi — объем заказа  
+Ii — уровень запасов  
+SSi — страховой запас  
+Bi — объем дефицита  
+Ni — количество поставок  
+Li — время поставки  
+Mi — количество транспортных рейсов  
+Ui — уровень загрузки склада  
+Yi — производительность склада  
+di — расстояние доставки
+""")
 
 column_config = {
-    "id": st.column_config.NumberColumn("ID", disabled=True), "name": st.column_config.TextColumn("Наименование", required=True),
+    "id": st.column_config.NumberColumn("ID", disabled=True),
+    "name": st.column_config.TextColumn("Наименование", required=True),
     "Q_min": st.column_config.NumberColumn("Мин. заказ (Q_min)", min_value=0.0),
     "Q_max": st.column_config.NumberColumn("Макс. заказ (Q_max)", min_value=0.0),
     "I_min": st.column_config.NumberColumn("Мин. запас (I_min)", min_value=0.0),
