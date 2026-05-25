@@ -12,7 +12,7 @@ st.set_page_config(page_title="КАДВИ: АПК Оптимизации Зап�
 st.title("🛠 АПК управления запасами ПАО «КАДВИ»")
 st.markdown("### Итоговая экономико-математическая модель (Дипломный проект)")
 
-# --- БАЗА ДАННЫХ И ИСХОДНАЯ СТРУКТУРА (ПОЛНОСТЬЮ ВЕРНУЛ ИЗ ТВОЕГО КОДА) ---
+# --- БАЗА ДАННЫХ И ИСХОДНАЯ СТРУКТУРА ---
 DB_NAME = Path(__file__).with_name("kadvi_model.db")
 
 SCHEMA_COLUMNS = [
@@ -43,10 +43,7 @@ DEFAULTS = {
     "Y_prod": 0.0, "Y_min": 0.0, "C_max": 0.0,
 }
 
-# Колонки для отображения в правой таблице ограничений
-TABLE_COLUMN_ORDER = [
-    "name", "Q_max", "I_min", "SS_min", "SS_max", "B_max", "N_max", "M_max", "U_max", "Y_prod", "d_dist"
-]
+TABLE_COLUMN_ORDER = ["name", "Q_max", "I_min", "SS_min", "SS_max", "B_max", "N_max", "M_max", "U_max", "Y_prod", "d_dist"]
 
 def seed_rows():
     rows = [
@@ -95,8 +92,7 @@ def row_id_label(row: pd.Series, fallback_index: int) -> str:
     return str(int(value))
 
 def coerce_numeric(series: pd.Series, default: float) -> pd.Series:
-    out = pd.to_numeric(series, errors="coerce")
-    return out.fillna(default).astype(float)
+    return pd.to_numeric(series, errors="coerce").fillna(default).astype(float)
 
 def infer_defaults_from_row(row: pd.Series) -> dict:
     d = dict(DEFAULTS)
@@ -167,7 +163,7 @@ def save_inventory_df(df: pd.DataFrame, conn: sqlite3.Connection | None = None, 
     finally:
         if close_conn: conn.close()
 
-# --- МАТЕМАТИКА ОПТИМИЗАТОРА (ПОЛНОСТЬЮ ИЗ ОРИГИНАЛА) ---
+# --- МАТЕМАТИКА ОПТИМИЗАТОРА ---
 def safe_div(a: float, b: float, eps: float = 1e-9) -> float:
     return a / (b if abs(b) > eps else eps)
 
@@ -192,7 +188,6 @@ def objective_and_metrics(x: np.ndarray, df: pd.DataFrame, mode: str, weights: d
         U_i = min(max(I / W_i, 0.0), max(U_max, 0.0))
 
         F1_i = C * Q + H * I + S * N_i + T * Q + P * B + R * SS
-
         R0, C0_factor = float(weights.get("R0", 0.95)), float(weights.get("C0_factor", 0.9))
         C0 = max(C * max(float(r["Q_min"]), 1.0) * C0_factor, 1e-6)
 
@@ -236,14 +231,12 @@ def validate_inputs(df_input: pd.DataFrame, budget: float, capacity: float) -> l
     for i, row in df_input.iterrows():
         name = normalize_text(row.get("name"), f"Строка {i + 1}")
         for c in required_numeric:
-            if pd.isna(row.get(c)) or not np.isfinite(float(row.get(c))): errors.append(f"🔴 **{name}**: поле `{c}` содержит некорректное значение.")
+            if pd.isna(row.get(c)) or not np.isfinite(float(row.get(c))): errors.append(f"🔴 **{name}**: поле `{c}` некорректно.")
         q_max, ss_max, d = float(row["Q_max"]), float(row["SS_max"]), float(row["D"])
         if q_max + ss_max < d: errors.append(f"🔴 **{name}**: Q_max + SS_max = {q_max + ss_max:.2f} не покрывает спрос D = {d:.2f}.")
 
     min_budget_needed = float((df_input["C"] * df_input["Q_min"]).sum())
     if min_budget_needed > budget: errors.append(f"💰 **Бюджет**: для закупки минимума требуется {min_budget_needed:,.2f} руб., доступно {budget:,.2f} руб.")
-    min_capacity_needed = float(df_input["I_min"].sum())
-    if min_capacity_needed > capacity: errors.append(f"🏭 **Склад**: минимальный запас требует {min_capacity_needed:,.2f} ед. емкости, доступно {capacity:,.2f} ед.")
     return errors
 
 def build_bounds(df_input: pd.DataFrame) -> tuple[list[tuple[float, float]], list[float]]:
@@ -308,7 +301,7 @@ def score_single_candidate(candidate_df: pd.DataFrame, mode: str, globals_cfg: d
     return float(score) + 1e18
 
 def select_best_alternatives(df_input: pd.DataFrame, mode: str, globals_cfg: dict, weights: dict) -> tuple[pd.DataFrame, list[str]]:
-    df = normalize_inventory_df(df_input).copy()
+    df = df_input.copy()
     if df.empty: return df, []
 
     df["_name_key"] = df["name"].apply(lambda value: normalize_text(value, "Новая позиция").casefold())
@@ -343,11 +336,9 @@ with st.sidebar:
         "F5: Транспортно-складские расходы", "F6: Макс. эффективности склада"
     ])
 
-    st.divider()
-    
-    # ВОССТАНОВЛЕНЫ ВЕСА F2
     weights = {"alpha": 0.0, "beta": 0.0, "gamma": 0.0, "delta": 0.0, "lambda": 0.0, "theta": 0.0, "R0": 0.95, "C0_factor": 0.9}
     if mode.startswith("F2"):
+        st.divider()
         with st.expander("Весовые коэффициенты F2", expanded=True):
             weights["alpha"] = st.slider("alpha — спрос", 0.0, 1.0, 0.30, 0.01)
             weights["beta"] = st.slider("beta — сроки", 0.0, 1.0, 0.20, 0.01)
@@ -355,16 +346,10 @@ with st.sidebar:
             weights["delta"] = st.slider("delta — страховой запас", 0.0, 1.0, 0.10, 0.01)
             weights["lambda"] = st.slider("lambda — надежность", 0.0, 1.0, 0.20, 0.01)
             weights["theta"] = st.slider("theta — затраты", 0.0, 1.0, 0.10, 0.01)
-        st.divider()
-
-    st.markdown("### 🌍 Глобальные переменные")
-    F_budget = st.number_input("F (Бюджет, руб)", value=5000000.0, step=100000.0)
-    W_total = st.number_input("W (Склад, ед)", value=10000.0, step=1000.0)
 
     st.divider()
-    
     st.markdown("### 📥 Импорт данных")
-    uploaded_file = st.file_uploader("Загрузить БД (Excel)", type=["xlsx"])
+    uploaded_file = st.file_uploader("Загрузить БД (Excel)", type=["xlsx"], label_visibility="collapsed")
     if uploaded_file is not None:
         try:
             save_inventory_df(pd.read_excel(uploaded_file))
@@ -372,12 +357,11 @@ with st.sidebar:
             st.rerun()
         except: st.error("Ошибка при чтении Excel.")
 
-globals_cfg = {"F_budget": F_budget, "W_total": W_total}
 
-col_left, col_right = st.columns([1.6, 2.4], gap="large")
+col_left, col_right = st.columns([1.3, 2.7], gap="large")
 
 with col_left:
-    st.markdown("#### 🔒 Постоянные параметры (Константы)")
+    st.markdown("#### 🔒 Постоянные параметры")
     selected_idx = st.selectbox(
         "📝 Выбор позиции:", 
         range(len(df_current)), 
@@ -385,37 +369,45 @@ with col_left:
     )
     
     with st.container(border=True):
-        c1, c2, c3 = st.columns(3)
-        # Связываем запрошенные тобой обозначения с оригинальной БД
+        c1, c2 = st.columns(2)
+        
+        # Строго 17 констант слева
         C_i = c1.number_input("C_i", value=float(df_current.at[selected_idx, "C"]))
         H_i = c2.number_input("H_i", value=float(df_current.at[selected_idx, "H"]))
-        S_i = c3.number_input("S_i", value=float(df_current.at[selected_idx, "S"]))
         
-        T_i = c1.number_input("T_i", value=float(df_current.at[selected_idx, "T"]))
-        P_i = c2.number_input("P_i", value=float(df_current.at[selected_idx, "P"]))
-        R_i = c3.number_input("R_i", value=float(df_current.at[selected_idx, "R"]))
+        S_i = c1.number_input("S_i", value=float(df_current.at[selected_idx, "S"]))
+        T_i = c2.number_input("T_i", value=float(df_current.at[selected_idx, "T"]))
         
-        O_i = c1.number_input("O_i (D)", value=float(df_current.at[selected_idx, "D"]))
-        W_i = c2.number_input("W_i", value=float(df_current.at[selected_idx, "W_i"]))
-        K_i = c3.number_input("K_i", value=float(df_current.at[selected_idx, "K"]))
+        P_i = c1.number_input("P_i", value=float(df_current.at[selected_idx, "P"]))
+        R_i = c2.number_input("R_i", value=float(df_current.at[selected_idx, "R"]))
         
-        V_i = c1.number_input("V_i", value=float(df_current.at[selected_idx, "V"]))
-        E_i = c2.number_input("E_i", value=float(df_current.at[selected_idx, "E"]))
-        Z_i = c3.number_input("Z_i", value=float(df_current.at[selected_idx, "Z"]))
+        O_i = c1.number_input("O_i (Спрос)", value=float(df_current.at[selected_idx, "D"]))
+        W_i = c2.number_input("W_i (Склад)", value=float(df_current.at[selected_idx, "W_i"]))
+        
+        K_i = c1.number_input("K_i", value=float(df_current.at[selected_idx, "K"]))
+        V_i = c2.number_input("V_i", value=float(df_current.at[selected_idx, "V"]))
+        
+        E_i = c1.number_input("E_i", value=float(df_current.at[selected_idx, "E"]))
+        Z_i = c2.number_input("Z_i (Риск)", value=float(df_current.at[selected_idx, "Z"]))
         
         A_i = c1.number_input("A_i", value=float(df_current.at[selected_idx, "A"]))
         G_i = c2.number_input("G_i", value=float(df_current.at[selected_idx, "G"]))
-        F_i = c3.number_input("F_i", value=float(df_current.at[selected_idx, "Fi_cost"]))
         
-        Q_i = c1.number_input("Q_i (Q_min)", value=float(df_current.at[selected_idx, "Q_min"]))
-        L_i = c2.number_input("L_i", value=float(df_current.at[selected_idx, "L"]))
+        F_i = c1.number_input("F_i", value=float(df_current.at[selected_idx, "Fi_cost"]))
+        Q_i = c2.number_input("Q_i", value=float(df_current.at[selected_idx, "Q_min"]))
+        
+        L_i = c1.number_input("L_i", value=float(df_current.at[selected_idx, "L"]))
 
         df_current.loc[selected_idx, ["C", "H", "S", "T", "P", "R", "D", "W_i", "K", "V", "E", "Z", "A", "G", "Fi_cost", "Q_min", "L"]] = [C_i, H_i, S_i, T_i, P_i, R_i, O_i, W_i, K_i, V_i, E_i, Z_i, A_i, G_i, F_i, Q_i, L_i]
 
+    st.markdown("#### 🌍 Глобальные переменные")
+    with st.container(border=True):
+        F_budget = st.number_input("F (Бюджет, руб)", value=5000000.0, step=100000.0)
+        W_total = st.number_input("W (Склад, ед)", value=10000.0, step=1000.0)
+    globals_cfg = {"F_budget": F_budget, "W_total": W_total}
 
 with col_right:
-    st.markdown("#### 🎛️ Переменные параметры (Ограничения для расчета)")
-    # Показываем редактируемую таблицу с оставшимися переменными границами
+    st.markdown("#### 🎛️ Переменные параметры (Ограничения)")
     edited_table = st.data_editor(
         df_current[TABLE_COLUMN_ORDER],
         use_container_width=True,
@@ -430,126 +422,135 @@ with col_right:
         if st.button("💾 Сохранить БД", use_container_width=True):
             save_inventory_df(df_current)
             st.success("Данные успешно сохранены!")
-    with c_btn2:
-        if st.button("🚀 РАССЧИТАТЬ ОПТИМУМ", type="primary", use_container_width=True):
-            st.session_state['run_opt'] = True
+    
+    # КНОПКА ЗАПУСКА
+    run_opt_clicked = c_btn2.button("🚀 РАССЧИТАТЬ ОПТИМУМ", type="primary", use_container_width=True)
 
-# --- БЛОК ВЫВОДА РЕЗУЛЬТАТОВ (ГРАФИКИ, МЕТРИКИ, ЭКСЕЛЬ) ---
-if st.session_state.get('run_opt', False):
+# --- ПРЯМОЕ ИСПОЛНЕНИЕ РАСЧЕТА (БЕЗ SESSION STATE) ---
+if run_opt_clicked:
     st.divider()
     st.markdown("### 🏆 Результаты расчета оптимальных переменных")
     
-    # 100 ЗНАЧЕНИЙ И ВЫБОР ЛУЧШИХ (как в исходнике)
     optimization_df, selection_notes = select_best_alternatives(df_current, mode, globals_cfg, weights)
     validation_errors = validate_inputs(optimization_df, F_budget, W_total)
+    
     if validation_errors:
         for err in validation_errors: st.error(err)
-        st.stop()
-    
-    with st.spinner("Синтез оптимального решения..."):
-        result = run_optimization(optimization_df, mode, globals_cfg, weights)
-        
-    if result is not None and result.success:
-        raw_val, final_metrics, _ = objective_and_metrics(result.x, optimization_df, mode, weights)
-        displayed_value = -raw_val if mode.startswith(("F3", "F6")) else raw_val
-        
-        st.success(f"🎯 Оптимальный план найден. Значение целевой функции: {displayed_value:,.4f}")
-        if selection_notes:
-            st.info("Лучшие альтернативы по повторяющимся наименованиям: " + "; ".join(selection_notes) + ".")
-
-        res_data = []
-        for i in range(len(optimization_df)):
-            r = optimization_df.iloc[i]
-            idx = i * 4
-            Q_opt, I_opt, SS_opt, B_opt = float(result.x[idx]), float(result.x[idx+1]), float(result.x[idx+2]), float(result.x[idx+3])
-            
-            # Пересчет зависимых переменных
-            N_opt = float(r["D"]) / max(Q_opt, 1e-6)
-            M_opt = float(r["D"]) / max(Q_opt, 1e-6)
-            U_opt = min(max(I_opt / max(float(r["W_i"]), 1e-6), 0.0), max(float(r["U_max"]), 0.0))
-            
-            res_data.append({
-                "Товар": r["name"],
-                "Q_i": Q_opt, "I_i": I_opt, "N_i": N_opt, "B_i": B_opt, "SS_i": SS_opt,
-                "L_i": float(r["L"]), "M_i": M_opt, "U_i": U_opt, "Y_i": float(r["Y_prod"]), "d_i": float(r["d_dist"]),
-                "Затраты (руб)": float(r["C"])*Q_opt,
-                "Транспорт (руб)": float(r["T"]) * Q_opt,
-                "Риск (руб)": float(r["V"]) * B_opt,
-                "Макс. ВМ (W_i)": float(r["W_i"]),
-                "Бюджет_Лимит": F_budget,
-            })
-            
-        res_df = pd.DataFrame(res_data)
-        
-        # --- МЕТРИКИ ---
-        c1, c2, c3, c4 = st.columns(4)
-        total_cost = float(res_df["Затраты (руб)"].sum())
-        c1.metric("Использовано бюджета", f"{total_cost:,.0f} руб", f"{(total_cost / max(F_budget, 1e-9) * 100):.1f}%")
-        c2.metric("Загрузка склада", f"{float(res_df['I_i'].sum()):,.0f} ед")
-        c3.metric("Транспортные затраты", f"{float(res_df['Транспорт (руб)'].sum()):,.0f} руб")
-        c4.metric("Риск-дефицит", f"{float(res_df['Риск (руб)'].sum()):,.0f} руб")
-
-        # --- ИДЕАЛЬНАЯ ТАБЛИЦА ЦЕЛЕВЫХ ПЕРЕМЕННЫХ ---
-        st.write("#### Оптимальные параметры управления")
-        def color_limits(row):
-            q_i, i_i, ss_i, b_i, w_i, budget = row["Q_i"], row["I_i"], row["SS_i"], row["B_i"], row["Макс. ВМ (W_i)"], row["Бюджет_Лимит"]
-            q_style = i_style = ss_style = b_style = cost_style = "background-color: #1e4620; color: white;"
-
-            if q_i + i_i >= w_i * 0.95: q_style = i_style = "background-color: #8c1d18; color: white; font-weight: bold;"
-            elif q_i + i_i >= w_i * 0.85: q_style = i_style = "background-color: #b58900; color: white; font-weight: bold;"
-            if ss_i > 0.8 * w_i: ss_style = "background-color: #b58900; color: white; font-weight: bold;"
-            if b_i > 0: b_style = "background-color: #8c1d18; color: white; font-weight: bold;"
-            if row["Затраты (руб)"] > budget: cost_style = "background-color: #8c1d18; color: white; font-weight: bold;"
-            elif row["Затраты (руб)"] >= budget * 0.8: cost_style = "background-color: #b58900; color: white; font-weight: bold;"
-
-            styles, col_idx = [""] * len(row), {col: i for i, col in enumerate(row.index)}
-            styles[col_idx["Q_i"]], styles[col_idx["I_i"]], styles[col_idx["SS_i"]], styles[col_idx["B_i"]], styles[col_idx["Затраты (руб)"]] = q_style, i_style, ss_style, b_style, cost_style
-            return styles
-
-        display_df = res_df.style.apply(color_limits, axis=1).format({
-            "Q_i": "{:.2f}", "I_i": "{:.2f}", "N_i": "{:.2f}", "B_i": "{:.2f}", "SS_i": "{:.2f}", 
-            "L_i": "{:.2f}", "M_i": "{:.2f}", "U_i": "{:.4f}", "Y_i": "{:.2f}", "d_i": "{:.2f}", 
-            "Затраты (руб)": "{:,.2f}", "Транспорт (руб)": "{:,.2f}", "Риск (руб)": "{:,.2f}"
-        })
-
-        st.dataframe(
-            display_df, use_container_width=True, hide_index=True,
-            column_order=["Товар", "Q_i", "I_i", "N_i", "B_i", "SS_i", "L_i", "M_i", "U_i", "Y_i", "d_i", "Затраты (руб)", "Транспорт (руб)", "Риск (руб)"]
-        )
-
-        # --- ЭКСЕЛЬ (ВЫГРУЗКА РЕЗУЛЬТАТА) ---
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            res_df.drop(columns=["Макс. ВМ (W_i)", "Бюджет_Лимит"]).to_excel(writer, index=False, sheet_name="План_закупок")
-        st.download_button("📥 СКАЧАТЬ ПЛАН В EXCEL", data=buffer.getvalue(), file_name="KADVI_Opt_Plan.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-        st.divider()
-
-        # --- ГРАФИКИ PLOTLY ---
-        col_chart1, col_chart2 = st.columns(2)
-        with col_chart1:
-            fig1 = go.Figure()
-            fig1.add_trace(go.Bar(name="Объем заказа (Q_i)", x=res_df["Товар"], y=res_df["Q_i"]))
-            fig1.add_trace(go.Bar(name="Запас (I_i)", x=res_df["Товар"], y=res_df["I_i"]))
-            fig1.add_trace(go.Scatter(x=res_df["Товар"], y=res_df["Макс. ВМ (W_i)"], mode="lines+markers", name="Предел вместимости (W_i)", line=dict(dash="dash", width=2, color="red")))
-            fig1.update_layout(title="Объем запасов vs Ограничение склада", barmode="stack")
-            st.plotly_chart(fig1, use_container_width=True)
-
-        with col_chart2:
-            fig2 = go.Figure(data=[go.Bar(name="Затраты закупки", x=["Общие затраты"], y=[total_cost], text=[f"{total_cost:,.0f} руб"], textposition="auto")])
-            fig2.add_hline(y=F_budget, line_dash="dash", line_color="red", annotation_text="Лимит бюджета", annotation_position="top left")
-            fig2.update_layout(title="Фактические затраты vs Бюджет", yaxis=dict(range=[0, max(F_budget * 1.2, total_cost * 1.2, 1.0)]))
-            st.plotly_chart(fig2, use_container_width=True)
-
-        # --- АНАЛИТИКА ЦЕЛЕВЫХ ФУНКЦИЙ ---
-        st.divider()
-        st.write("#### Анализ эффективности по всем целевым критериям (F1 - F6)")
-        metrics_df = pd.DataFrame({
-            "Критерий": ["F1 (Совокупные затраты)", "F2 (Потери неопределенности)", "F3 (Уровень обеспечения)", "F4 (Риск сбоев)", "F5 (Транспорт и склад)", "F6 (Эффективность склада)"],
-            "Значение": [final_metrics["F1"], final_metrics["F2"], final_metrics["F3"], final_metrics["F4"], final_metrics["F5"], final_metrics["F6"]],
-            "Направление оптимизации": ["Min", "Min", "Max", "Min", "Min", "Max"]
-        })
-        st.dataframe(metrics_df.style.format({"Значение": "{:,.4f}"}), use_container_width=True, hide_index=True)
-
     else:
-        st.error("❌ Алгоритму не удалось сойтись к решению. Попробуйте ослабить ограничения бюджета или вместимости.")
+        with st.spinner("Синтез оптимального решения..."):
+            result = run_optimization(optimization_df, mode, globals_cfg, weights)
+            
+        if result is not None and result.success:
+            raw_val, final_metrics, _ = objective_and_metrics(result.x, optimization_df, mode, weights)
+            displayed_value = -raw_val if mode.startswith(("F3", "F6")) else raw_val
+            
+            st.success(f"🎯 Оптимальный план найден. Значение целевой функции: {displayed_value:,.4f}")
+            if selection_notes:
+                st.info("Лучшие альтернативы по повторяющимся наименованиям: " + "; ".join(selection_notes) + ".")
+
+            res_data = []
+            for i in range(len(optimization_df)):
+                r = optimization_df.iloc[i]
+                idx = i * 4
+                Q_opt, I_opt, SS_opt, B_opt = float(result.x[idx]), float(result.x[idx+1]), float(result.x[idx+2]), float(result.x[idx+3])
+                
+                N_opt = float(r["D"]) / max(Q_opt, 1e-6)
+                M_opt = float(r["D"]) / max(Q_opt, 1e-6)
+                U_opt = min(max(I_opt / max(float(r["W_i"]), 1e-6), 0.0), max(float(r["U_max"]), 0.0))
+                
+                res_data.append({
+                    "ID": row_id_label(r, i),
+                    "Товар": r["name"],
+                    "Заказ (Q)": Q_opt, "Запас (I)": I_opt, "Поставок (N)": N_opt, "Дефицит (B)": B_opt, 
+                    "Страх.запас (SS)": SS_opt, "Время (L)": float(r["L"]), "Рейсов (M)": M_opt, 
+                    "Загрузка (U)": U_opt, "Произв. (Y)": float(r["Y_prod"]), "Расст. (d)": float(r["d_dist"]),
+                    "Затраты (руб)": float(r["C"])*Q_opt,
+                    "Транспорт (руб)": float(r["T"]) * Q_opt,
+                    "Риск (руб)": float(r["V"]) * B_opt,
+                    "Макс. ВМ (W_i)": float(r["W_i"]),
+                    "Бюджет_Лимит": F_budget,
+                })
+                
+            res_df = pd.DataFrame(res_data)
+            
+            # --- ИДЕАЛЬНАЯ ТАБЛИЦА ЦЕЛЕВЫХ ПЕРЕМЕННЫХ КАК НА ФОТО ---
+            st.write("#### Оптимальные параметры управления")
+            
+            def color_limits(row):
+                styles = ['background-color: #1e3a23; color: white;'] * len(row) # Темно-зеленый фон
+                col_idx = {col: i for i, col in enumerate(row.index)}
+                
+                q, i, ss, w = float(row.get("Заказ (Q)", 0)), float(row.get("Запас (I)", 0)), float(row.get("Страх.запас (SS)", 0)), float(row.get("Макс. ВМ (W_i)", 1000))
+                cost, budget = float(row.get("Затраты (руб)", 0)), float(row.get("Бюджет_Лимит", 1e9))
+
+                red = 'background-color: #8c1d18; color: white; font-weight: bold;'
+                yellow = 'background-color: #b58900; color: white; font-weight: bold;'
+
+                # Q и I цвета
+                q_style = i_style = styles[0]
+                if q + i >= w * 0.95: q_style = i_style = red
+                elif q + i >= w * 0.85: q_style = i_style = yellow
+                
+                if "Заказ (Q)" in col_idx: styles[col_idx["Заказ (Q)"]] = q_style
+                if "Запас (I)" in col_idx: styles[col_idx["Запас (I)"]] = i_style
+                
+                # Дефицит всегда красный (как на скрине)
+                if "Дефицит (B)" in col_idx: styles[col_idx["Дефицит (B)"]] = red
+                
+                # Страх. запас
+                if ss > w * 0.8 and "Страх.запас (SS)" in col_idx: styles[col_idx["Страх.запас (SS)"]] = yellow
+                
+                # Затраты
+                if cost > budget and "Затраты (руб)" in col_idx: styles[col_idx["Затраты (руб)"]] = red
+                elif cost >= budget * 0.8 and "Затраты (руб)" in col_idx: styles[col_idx["Затраты (руб)"]] = yellow
+
+                return styles
+
+            display_df = res_df.style.apply(color_limits, axis=1).format({
+                "Заказ (Q)": "{:.2f}", "Запас (I)": "{:.2f}", "Поставок (N)": "{:.2f}", "Дефицит (B)": "{:.2f}", 
+                "Страх.запас (SS)": "{:.2f}", "Время (L)": "{:.2f}", "Рейсов (M)": "{:.2f}", 
+                "Загрузка (U)": "{:.4f}", "Произв. (Y)": "{:.2f}", "Расст. (d)": "{:.2f}", 
+                "Затраты (руб)": "{:,.2f}", "Транспорт (руб)": "{:,.2f}", "Риск (руб)": "{:,.2f}"
+            })
+
+            # Вывод всех запрошенных переменных
+            ordered_cols = ["ID", "Товар", "Заказ (Q)", "Запас (I)", "Поставок (N)", "Дефицит (B)", "Страх.запас (SS)", "Время (L)", "Рейсов (M)", "Загрузка (U)", "Произв. (Y)", "Расст. (d)", "Затраты (руб)", "Транспорт (руб)", "Риск (руб)"]
+            
+            st.dataframe(display_df, use_container_width=True, hide_index=True, column_order=ordered_cols)
+
+            # --- ЭКСЕЛЬ ---
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                res_df[ordered_cols].to_excel(writer, index=False, sheet_name="План_закупок")
+            st.download_button("📥 СКАЧАТЬ ПЛАН В EXCEL", data=buffer.getvalue(), file_name="KADVI_Opt_Plan.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+            st.divider()
+
+            # --- ГРАФИКИ И АНАЛИТИКА ---
+            col_chart1, col_chart2 = st.columns(2)
+            with col_chart1:
+                fig1 = go.Figure()
+                fig1.add_trace(go.Bar(name="Объем заказа (Q_i)", x=res_df["Товар"], y=res_df["Заказ (Q)"]))
+                fig1.add_trace(go.Bar(name="Запас (I_i)", x=res_df["Товар"], y=res_df["Запас (I)"]))
+                fig1.add_trace(go.Scatter(x=res_df["Товар"], y=res_df["Макс. ВМ (W_i)"], mode="lines+markers", name="Предел вместимости (W_i)", line=dict(dash="dash", width=2, color="red")))
+                fig1.update_layout(title="Объем запасов vs Ограничение склада", barmode="stack")
+                st.plotly_chart(fig1, use_container_width=True)
+
+            with col_chart2:
+                total_cost = float(res_df["Затраты (руб)"].sum())
+                fig2 = go.Figure(data=[go.Bar(name="Затраты закупки", x=["Общие затраты"], y=[total_cost], text=[f"{total_cost:,.0f} руб"], textposition="auto")])
+                fig2.add_hline(y=F_budget, line_dash="dash", line_color="red", annotation_text="Лимит бюджета", annotation_position="top left")
+                fig2.update_layout(title="Фактические затраты vs Бюджет", yaxis=dict(range=[0, max(F_budget * 1.2, total_cost * 1.2, 1.0)]))
+                st.plotly_chart(fig2, use_container_width=True)
+
+            st.divider()
+            st.write("#### Анализ эффективности по всем целевым критериям (F1 - F6)")
+            metrics_df = pd.DataFrame({
+                "Критерий": ["F1 (Совокупные затраты)", "F2 (Потери неопределенности)", "F3 (Уровень обеспечения)", "F4 (Риск сбоев)", "F5 (Транспорт и склад)", "F6 (Эффективность склада)"],
+                "Значение": [final_metrics["F1"], final_metrics["F2"], final_metrics["F3"], final_metrics["F4"], final_metrics["F5"], final_metrics["F6"]],
+                "Направление оптимизации": ["Min", "Min", "Max", "Min", "Min", "Max"]
+            })
+            st.dataframe(metrics_df.style.format({"Значение": "{:,.4f}"}), use_container_width=True, hide_index=True)
+
+        else:
+            st.error("❌ Алгоритму не удалось сойтись к решению. Попробуйте ослабить ограничения бюджета или вместимости.")
