@@ -14,74 +14,47 @@ st.markdown("### Итоговая экономико-математическа�
 
 with st.expander("📖 Спецификация параметров математической модели"):
     st.markdown("""
-    **1. Переменные параметры модели:**
+    **1. Управляемые (искомые) переменные:**
     * $Q_i$ — объем заказа;
     * $I_i$ — текущий уровень запасов;
     * $SS_i$ — страховой запас;
-    * $B_i$ — объем дефицита;
-    * $N_i$ — количество поставок;
-    * $L_i$ — время поставки;
-    * $M_i$ — количество транспортных рейсов;
-    * $U_i$ — уровень загрузки склада и оборудования;
-    * $Y_i$ — производительность склада;
-    * $d_i$ — расстояние доставки.
+    * $B_i$ — объем дефицита.
     
     **2. Зависимые (расчетные) переменные:**
     * $N_i$ — количество поставок ($D_i / Q_i$);
     * $M_i$ — количество транспортных рейсов ($D_i / Q_i$);
-    * $U_i$ — уровень загрузки склада ($I_i / W_i$);
-    * $Y_i$ — производительность склада;
-    * $d_i$ — расстояние доставки;
-    * $L_i$ — время поставки.
+    * $U_i$ — уровень загрузки склада ($I_i / W_i$).
     
     **3. Постоянные параметры (константы):**
-    * $C_i$ — цена закупки;
-    * $H_i$ — затраты хранения;
-    * $S_i$ — оформление заказа;
-    * $T_i$ — транспортные расходы;
-    * $P_i$ — вероятность задержки;
-    * $R_i$ — надежность поставщика;
-    * $K_i$ — качество поставки;
-    * $D_i$ — спрос;
-    * $W_i$ — вместимость склада;
-    * $V_i$ — потери от дефицита;
-    * $E_i$ — эксплуатационные затраты;
-    * $Z_i$ — риск поставщика;
-    * $T^{max}_i$ — максимальные транспортные затраты;
-    * $A_i$ — стоимость за км;
-    * $G_i$ — погрузка-разгрузка;
-    * $Fi_i$ — стоимость оборудования;
-    * $Y^{prod}_i$ — производительность склада;
-    * $Y^{min}_i$ — минимальная производительность;
-    * $C^{max}_i$ — максимальная цена.
+    * $C_i, H_i, S_i, T_i, P_i, R_i, K_i, D_i, L_i, W_i$ и весовые коэффициенты.
     """)
 
 DB_NAME = Path(__file__).with_name("kadvi_model.db")
 
 SCHEMA_COLUMNS = [
     "id", "name", "C", "H", "S", "T", "P", "R", "K", "D", "D_fuzzy_min", "D_fuzzy_max",
-    "L", "L_fuzzy_min", "L_fuzzy_max", "W_i", "N_max", "B_max", "Q_min", "Q_max", 
-    "SS_min", "SS_max", "I_min", "V", "E", "Z", "M_max", "d_dist", "T_max", "A", 
+    "L", "L_fuzzy_min", "L_fuzzy_max", "W_i", "N_max", "B_max", "Q_min", "Q_max",
+    "SS_min", "SS_max", "I_min", "V", "E", "Z", "M_max", "d_dist", "T_max", "A",
     "G", "Fi_cost", "U_max", "Y_prod", "Y_min", "C_max",
 ]
 
 NUMERIC_COLUMNS = [c for c in SCHEMA_COLUMNS if c not in {"id", "name"}]
 
 COLUMN_SQL_TYPES = {
-    "name": "TEXT", "C": "REAL", "H": "REAL", "S": "REAL", "T": "REAL", "P": "REAL", 
+    "name": "TEXT", "C": "REAL", "H": "REAL", "S": "REAL", "T": "REAL", "P": "REAL",
     "R": "REAL", "K": "REAL", "D": "REAL", "D_fuzzy_min": "REAL", "D_fuzzy_max": "REAL",
-    "L": "REAL", "L_fuzzy_min": "REAL", "L_fuzzy_max": "REAL", "W_i": "REAL", "N_max": "REAL", 
-    "B_max": "REAL", "Q_min": "REAL", "Q_max": "REAL", "SS_min": "REAL", "SS_max": "REAL", 
-    "I_min": "REAL", "V": "REAL", "E": "REAL", "Z": "REAL", "M_max": "REAL", "d_dist": "REAL", 
+    "L": "REAL", "L_fuzzy_min": "REAL", "L_fuzzy_max": "REAL", "W_i": "REAL", "N_max": "REAL",
+    "B_max": "REAL", "Q_min": "REAL", "Q_max": "REAL", "SS_min": "REAL", "SS_max": "REAL",
+    "I_min": "REAL", "V": "REAL", "E": "REAL", "Z": "REAL", "M_max": "REAL", "d_dist": "REAL",
     "T_max": "REAL", "A": "REAL", "G": "REAL", "Fi_cost": "REAL", "U_max": "REAL",
     "Y_prod": "REAL", "Y_min": "REAL", "C_max": "REAL",
 }
 
 DEFAULTS = {
-    "name": "Новая позиция", "C": 0.0, "H": 0.0, "S": 0.0, "T": 0.0, "P": 0.0, "R": 0.0, 
-    "K": 0.0, "D": 0.0, "D_fuzzy_min": 0.0, "D_fuzzy_max": 0.0, "L": 0.0, "L_fuzzy_min": 0.0, 
-    "L_fuzzy_max": 0.0, "W_i": 0.0, "N_max": 9999.0, "B_max": 0.0, "Q_min": 0.0, "Q_max": 0.0, 
-    "SS_min": 0.0, "SS_max": 0.0, "I_min": 0.0, "V": 0.0, "E": 0.0, "Z": 0.0, "M_max": 9999.0, 
+    "name": "Новая позиция", "C": 0.0, "H": 0.0, "S": 0.0, "T": 0.0, "P": 0.0, "R": 0.0,
+    "K": 0.0, "D": 0.0, "D_fuzzy_min": 0.0, "D_fuzzy_max": 0.0, "L": 0.0, "L_fuzzy_min": 0.0,
+    "L_fuzzy_max": 0.0, "W_i": 0.0, "N_max": 9999.0, "B_max": 0.0, "Q_min": 0.0, "Q_max": 0.0,
+    "SS_min": 0.0, "SS_max": 0.0, "I_min": 0.0, "V": 0.0, "E": 0.0, "Z": 0.0, "M_max": 9999.0,
     "d_dist": 0.0, "T_max": 0.0, "A": 0.0, "G": 0.0, "Fi_cost": 0.0, "U_max": 1.0,
     "Y_prod": 0.0, "Y_min": 0.0, "C_max": 0.0,
 }
@@ -136,27 +109,27 @@ CONSTANT_PARAM_GROUPS = [
 def seed_rows():
     rows = [
         {
-            "name": "Вал коленчатый", "C": 2500, "H": 120, "S": 450, "T": 80, "P": 0.15, 
+            "name": "Вал коленчатый", "C": 2500, "H": 120, "S": 450, "T": 80, "P": 0.15,
             "R": 0.95, "K": 0.98, "D": 400, "D_fuzzy_min": 350, "D_fuzzy_max": 450,
             "L": 10, "L_fuzzy_min": 8, "L_fuzzy_max": 14, "W_i": 500, "N_max": 12, "B_max": 40,
-            "Q_min": 20, "Q_max": 600, "SS_min": 15, "SS_max": 120, "I_min": 10, "V": 0.5, 
-            "E": 1.2, "Z": 0.8, "M_max": 5, "d_dist": 150, "T_max": 50000, "A": 12, 
+            "Q_min": 20, "Q_max": 600, "SS_min": 15, "SS_max": 120, "I_min": 10, "V": 0.5,
+            "E": 1.2, "Z": 0.8, "M_max": 5, "d_dist": 150, "T_max": 50000, "A": 12,
             "G": 300, "Fi_cost": 500, "U_max": 0.85, "Y_prod": 100, "Y_min": 50, "C_max": 3000,
         },
         {
-            "name": "Шестерня", "C": 850, "H": 40, "S": 200, "T": 30, "P": 0.10, "R": 0.98, 
-            "K": 0.99, "D": 1200, "D_fuzzy_min": 1100, "D_fuzzy_max": 1300, "L": 5, 
+            "name": "Шестерня", "C": 850, "H": 40, "S": 200, "T": 30, "P": 0.10, "R": 0.98,
+            "K": 0.99, "D": 1200, "D_fuzzy_min": 1100, "D_fuzzy_max": 1300, "L": 5,
             "L_fuzzy_min": 4, "L_fuzzy_max": 7, "W_i": 1000, "N_max": 24, "B_max": 100,
-            "Q_min": 50, "Q_max": 1500, "SS_min": 40, "SS_max": 200, "I_min": 20, "V": 0.3, 
-            "E": 0.9, "Z": 0.4, "M_max": 10, "d_dist": 80, "T_max": 45000, "A": 8, 
+            "Q_min": 50, "Q_max": 1500, "SS_min": 40, "SS_max": 200, "I_min": 20, "V": 0.3,
+            "E": 0.9, "Z": 0.4, "M_max": 10, "d_dist": 80, "T_max": 45000, "A": 8,
             "G": 150, "Fi_cost": 200, "U_max": 0.90, "Y_prod": 200, "Y_min": 100, "C_max": 1200,
         },
         {
-            "name": "Корпус", "C": 4200, "H": 300, "S": 800, "T": 250, "P": 0.20, "R": 0.90, 
-            "K": 0.95, "D": 150, "D_fuzzy_min": 130, "D_fuzzy_max": 180, "L": 20, 
+            "name": "Корпус", "C": 4200, "H": 300, "S": 800, "T": 250, "P": 0.20, "R": 0.90,
+            "K": 0.95, "D": 150, "D_fuzzy_min": 130, "D_fuzzy_max": 180, "L": 20,
             "L_fuzzy_min": 15, "L_fuzzy_max": 30, "W_i": 300, "N_max": 6, "B_max": 20,
-            "Q_min": 5, "Q_max": 250, "SS_min": 10, "SS_max": 80, "I_min": 5, "V": 0.7, 
-            "E": 1.5, "Z": 1.2, "M_max": 3, "d_dist": 300, "T_max": 40000, "A": 20, 
+            "Q_min": 5, "Q_max": 250, "SS_min": 10, "SS_max": 80, "I_min": 5, "V": 0.7,
+            "E": 1.5, "Z": 1.2, "M_max": 3, "d_dist": 300, "T_max": 40000, "A": 20,
             "G": 600, "Fi_cost": 800, "U_max": 0.80, "Y_prod": 50, "Y_min": 20, "C_max": 5000,
         },
     ]
@@ -324,17 +297,17 @@ def objective_and_metrics(x: np.ndarray, df: pd.DataFrame, mode: str, weights: d
         U_i = min(max(I / W_i, 0.0), max(U_max, 0.0))
 
         F1_i = C * Q + H * I + S * N_i + T * Q + P * B + R * SS
-        
+
         R0, C0_factor = float(weights.get("R0", 0.95)), float(weights.get("C0_factor", 0.9))
         C0 = max(C * max(float(r["Q_min"]), 1.0) * C0_factor, 1e-6)
-        
+
         F2_i = (
-            weights["alpha"] * (D_fuzzy - Q)**2 + 
+            weights["alpha"] * (D_fuzzy - Q)**2 +
             weights["beta"] * (L_fuzzy - L)**2 +
-            weights["gamma"] * (B**2) + 
+            weights["gamma"] * (B**2) +
             weights["delta"] * ((SS - I)**2) +
-            weights["lambda"] * ((R - R0)**2 * 1000) + 
-            weights["theta"] * (((C * Q - C0) / 1000.0)**2) 
+            weights["lambda"] * ((R - R0)**2 * 1000) +
+            weights["theta"] * (((C * Q - C0) / 1000.0)**2)
         )
 
         F3_i = ((Q + SS - B) * R * K) / max(D_fuzzy + L, 1e-6)
@@ -350,7 +323,7 @@ def objective_and_metrics(x: np.ndarray, df: pd.DataFrame, mode: str, weights: d
         metrics["F6"] += F6_i
 
         per_item.append({
-            "ID": row_id_label(r, i), "Товар": r["name"], "Q": Q, "I": I, "SS": SS, "B": B, "N_i": N_i, "M_i": M_i, 
+            "ID": row_id_label(r, i), "Товар": r["name"], "Q": Q, "I": I, "SS": SS, "B": B, "N_i": N_i, "M_i": M_i,
             "U_i": U_i, "F1_i": F1_i, "F2_i": F2_i, "F3_i": F3_i, "F4_i": F4_i, "F5_i": F5_i, "F6_i": F6_i,
         })
 
@@ -367,13 +340,13 @@ def objective_and_metrics(x: np.ndarray, df: pd.DataFrame, mode: str, weights: d
 def validate_inputs(df_input: pd.DataFrame, budget: float, capacity: float) -> list[str]:
     errors = []
     required_numeric = ["C", "H", "S", "T", "P", "R", "K", "D", "L", "W_i", "Q_min", "Q_max", "SS_min", "SS_max"]
-    
+
     for i, row in df_input.iterrows():
         name = normalize_text(row.get("name"), f"Строка {i + 1}")
         for c in required_numeric:
             if pd.isna(row.get(c)) or not np.isfinite(float(row.get(c))):
                 errors.append(f"🔴 **{name}**: поле `{c}` содержит некорректное значение.")
-        
+
         q_max, ss_max, d = float(row["Q_max"]), float(row["SS_max"]), float(row["D"])
         if q_max + ss_max < d:
             errors.append(f"🔴 **{name}**: Q_max + SS_max = {q_max + ss_max:.2f} не покрывает спрос D = {d:.2f}.")
@@ -393,7 +366,7 @@ def build_bounds(df_input: pd.DataFrame) -> tuple[list[tuple[float, float]], lis
     for _, row in df_input.iterrows():
         d, q_min, q_max, ss_min, ss_max, i_min, w_i, b_max = float(row["D"]), float(row["Q_min"]), float(row["Q_max"]), float(row["SS_min"]), float(row["SS_max"]), float(row["I_min"]), float(row["W_i"]), float(row["B_max"])
         u_max = max(float(row["U_max"]), 0.0)
-        
+
         q_lower, q_upper = q_min, max(q_min, q_max)
         i_lower, i_upper = i_min, max(i_min, w_i * u_max)
         ss_lower, ss_upper = ss_min, min(ss_max, w_i)
@@ -510,7 +483,7 @@ with st.sidebar:
         "F1: Минимизация совокупных затрат", "F2: Потери от неопределенности", "F3: Макс. уровня обеспечения",
         "F4: Риск логистических сбоев", "F5: Транспортно-складские расходы", "F6: Макс. эффективности склада",
     ])
-    
+
     st.divider()
     with st.expander("Постоянные параметры модели", expanded=True):
         if sidebar_df.empty:
@@ -520,7 +493,7 @@ with st.sidebar:
             selected_row_idx = st.selectbox(
                 "Номенклатура",
                 options=row_options,
-                format_func=lambda idx: f"ID {row_id_label(sidebar_df.iloc[idx], idx)} · {normalize_text(sidebar_df.iloc[idx]['name'], f'Строка {idx + 1}')}",
+                format_func=lambda idx: f"ID {row_id_label(sidebar_df.iloc[idx], idx)} · {normalize_text(sidebar_df.iloc[idx]['name'], f'Sтрока {idx + 1}')}",
             )
 
             for group_name, group_columns in CONSTANT_PARAM_GROUPS:
@@ -550,10 +523,12 @@ with st.sidebar:
     st.divider()
     st.subheader("Глобальные параметры ввода")
     f_budget_str = st.text_input("Общий бюджет закупок (F), руб.", value="5000000")
-    try: F_budget = float(f_budget_str.replace(" ", "").replace(",", "."))
-    except ValueError: F_budget = 5_000_000.0
+    try:
+        F_budget = float(f_budget_str.replace(" ", "").replace(",", "."))
+    except ValueError:
+        F_budget = 5_000_000.0
     W_total = st.number_input("Общая емкость склада (W)", min_value=0.0, value=float(sidebar_df["W_i"].sum() * 1.5), step=100.0)
-    
+
     weights = {"alpha": 0.0, "beta": 0.0, "gamma": 0.0, "delta": 0.0, "lambda": 0.0, "theta": 0.0, "R0": 0.95, "C0_factor": 0.9}
     if mode.startswith("F2"):
         st.divider()
@@ -648,7 +623,7 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
 
     prepared_df = normalize_inventory_df(edited_df)
     optimization_df, selection_notes = select_best_alternatives(prepared_df, mode, globals_cfg, weights)
-    
+
     validation_errors = validate_inputs(optimization_df, F_budget, W_total)
     if validation_errors:
         for err in validation_errors: st.error(err)
@@ -669,31 +644,39 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
         for i in range(len(optimization_df)):
             idx = i * 4
             row = optimization_df.iloc[i]
+
             Q_val = float(result.x[idx])
             I_val = float(result.x[idx + 1])
             SS_val = float(result.x[idx + 2])
             B_val = float(result.x[idx + 3])
 
-            N_val = safe_div(float(row["D"]), max(Q_val, 1e-6))
-            M_val = safe_div(float(row["D"]), max(Q_val, 1e-6))
-            U_val = min(max(I_val / max(float(row["W_i"]), 1e-6), 0.0), float(row["U_max"]))
-            Y_val = (I_val * U_val * float(row["Y_prod"])) / max(float(row["W_i"]) + float(row["C"]) + float(row["L"]), 1e-6)
-            d_val = float(row["d_dist"])
-            L_val = float(row["L"])
+            D_val = float(row["D"])
+            W_val = max(float(row["W_i"]), 1e-6)
+
+            N_val = D_val / max(Q_val, 1e-6)
+            M_val = D_val / max(Q_val, 1e-6)
+            U_val = min(max(I_val / W_val, 0.0), max(float(row["U_max"]), 0.0))
 
             res_data.append({
                 "ID": row_id_label(row, i),
                 "Товар": normalize_text(row["name"], f"Строка {i + 1}"),
+
+                "Q_i": Q_val,
+                "I_i": I_val,
+                "SS_i": SS_val,
+                "B_i": B_val,
+                "N_i": N_val,
+                "L_i": float(row["L"]),
+                "M_i": M_val,
+                "U_i": U_val,
+                "Y_i": float(row["Y_prod"]),
+                "d_i": float(row["d_dist"]),
+
                 "Заказ (Q)": Q_val,
                 "Запас (I)": I_val,
                 "Страх.запас (SS)": SS_val,
                 "Дефицит (B)": B_val,
-                "Кол-во поставок (N_i)": N_val,
-                "Время поставки (L_i)": L_val,
-                "Кол-во рейсов (M_i)": M_val,
-                "Загрузка склада (U_i)": U_val,
-                "Производительность (Y_i)": Y_val,
-                "Расстояние (d_i)": d_val,
+
                 "Затраты (руб)": float(row["C"]) * Q_val,
                 "Транспорт (руб)": float(row["T"]) * Q_val,
                 "Риск (руб)": float(row["V"]) * B_val,
@@ -702,7 +685,7 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
             })
 
         res_df = pd.DataFrame(res_data)
-        
+
         c1, c2, c3, c4 = st.columns(4)
         total_cost = float(res_df["Затраты (руб)"].sum())
         c1.metric("Использовано бюджета", f"{total_cost:,.0f} руб", f"{(total_cost / max(F_budget, 1e-9) * 100):.1f}%")
@@ -721,15 +704,16 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
             hide_index=True,
             column_order=[
                 "ID", "Товар",
+                "Q_i", "I_i", "SS_i", "B_i",
+                "N_i", "L_i", "M_i", "U_i", "Y_i", "d_i",
                 "Заказ (Q)", "Запас (I)", "Страх.запас (SS)", "Дефицит (B)",
-                "Кол-во поставок (N_i)", "Время поставки (L_i)", "Кол-во рейсов (M_i)",
-                "Загрузка склада (U_i)", "Производительность (Y_i)", "Расстояние (d_i)",
                 "Затраты (руб)", "Транспорт (руб)", "Риск (руб)"
             ]
         )
 
         buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine="openpyxl") as writer: res_df.to_excel(writer, index=False, sheet_name="План_закупок")
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            res_df.to_excel(writer, index=False, sheet_name="План_закупок")
         st.download_button("📥 СКАЧАТЬ ПЛАН В EXCEL", data=buffer.getvalue(), file_name="KADVI_Opt_Plan.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
         st.divider()
@@ -750,7 +734,7 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
 
         st.divider()
         st.write("#### Анализ эффективности по всем целевым критериям (F1 - F6)")
-        
+
         metrics_df = pd.DataFrame({
             "Критерий": ["F1 (Совокупные затраты)", "F2 (Потери неопределенности)", "F3 (Уровень обеспечения)", "F4 (Риск сбоев)", "F5 (Транспорт и склад)", "F6 (Эффективность склада)"],
             "Значение": [metrics["F1"], metrics["F2"], metrics["F3"], metrics["F4"], metrics["F5"], metrics["F6"]],
