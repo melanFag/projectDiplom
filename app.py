@@ -123,9 +123,10 @@ def run_optimization(df_input, mode, F_budget, W_total):
 
     return minimize(objective, np.array(x0), method="SLSQP", bounds=bounds, constraints=cons, options={"maxiter": 1000})
 
+
 # --- ИНТЕРФЕЙС ПОЛЬЗОВАТЕЛЯ ---
 
-# 1. SIDEBAR (Настройки и Глобальные переменные)
+# 1. SIDEBAR (Настройки, Глобальные лимиты и Постоянные параметры)
 with st.sidebar:
     st.header("⚙️ Режим расчета")
     mode = st.selectbox("🎯 Целевая функция:", [
@@ -139,80 +140,72 @@ with st.sidebar:
     F_budget = st.number_input("F (Бюджет, руб)", value=5000000.0, step=100000.0, help="Общий бюджет закупок")
     W_total = st.number_input("W (Склад, ед)", value=10000.0, step=1000.0, help="Общая емкость склада")
 
-# Улучшенные пропорции колонок для большей эстетики
-col_left, col_right = st.columns([1.6, 2.4], gap="large")
-
-# 2. ЛЕВАЯ ПАНЕЛЬ: ПОСТОЯННЫЕ ПАРАМЕТРЫ (Красивая сетка)
-with col_left:
-    st.markdown("#### 🔒 Постоянные параметры")
-    
+    st.divider()
+    st.markdown("### 🔒 Постоянные параметры")
     selected_idx = st.selectbox(
-        "📝 Выбор позиции для редактирования:", 
+        "📝 Выбор позиции:", 
         range(len(df_current)), 
         format_func=lambda x: df_current.iloc[x]['name']
     )
     
-    with st.container(border=True):
-        st.caption("Параметры выбранной номенклатуры (наведите на ❓ для расшифровки):")
-        # Выстраиваем инпуты в 3 колонки, чтобы избежать переносов строк
-        c1, c2, c3 = st.columns(3)
+    # Выпадающий список (expander) под глобальными лимитами
+    with st.expander("⚙️ Значения констант (Глобальные)"):
+        # Две колонки для компактности в сайдбаре
+        c1, c2 = st.columns(2)
         
-        # Строка 1
         C_i = c1.number_input("C_i", value=float(df_current.at[selected_idx, "C_i"]), help="Цена закупки")
         H_i = c2.number_input("H_i", value=float(df_current.at[selected_idx, "H_i"]), help="Затраты на хранение")
-        S_i = c3.number_input("S_i", value=float(df_current.at[selected_idx, "S_i"]), help="Стоимость оформления")
         
-        # Строка 2
-        T_i = c1.number_input("T_i", value=float(df_current.at[selected_idx, "T_i"]), help="Транспортные расходы")
-        P_i = c2.number_input("P_i", value=float(df_current.at[selected_idx, "P_i"]), help="Вероятность задержки (0-1)")
-        R_i = c3.number_input("R_i", value=float(df_current.at[selected_idx, "R_i"]), help="Надежность поставщика (0-1)")
+        S_i = c1.number_input("S_i", value=float(df_current.at[selected_idx, "S_i"]), help="Стоимость оформления")
+        T_i = c2.number_input("T_i", value=float(df_current.at[selected_idx, "T_i"]), help="Транспортные расходы")
         
-        # Строка 3
+        P_i = c1.number_input("P_i", value=float(df_current.at[selected_idx, "P_i"]), help="Вероятность задержки (0-1)")
+        R_i = c2.number_input("R_i", value=float(df_current.at[selected_idx, "R_i"]), help="Надежность поставщика (0-1)")
+        
         O_i = c1.number_input("O_i", value=float(df_current.at[selected_idx, "O_i"]), help="Спрос")
         W_i = c2.number_input("W_i", value=float(df_current.at[selected_idx, "W_i"]), help="Вместимость (лимит)")
-        K_i = c3.number_input("K_i", value=float(df_current.at[selected_idx, "K_i"]), help="Качество поставки (0-1)")
         
-        # Строка 4
-        V_i = c1.number_input("V_i", value=float(df_current.at[selected_idx, "V_i"]), help="Штраф за дефицит")
-        E_i = c2.number_input("E_i", value=float(df_current.at[selected_idx, "E_i"]), help="Эксплуатационные расходы")
-        Z_i = c3.number_input("Z_i", value=float(df_current.at[selected_idx, "Z_i"]), help="Риск поставщика")
+        K_i = c1.number_input("K_i", value=float(df_current.at[selected_idx, "K_i"]), help="Качество поставки (0-1)")
+        V_i = c2.number_input("V_i", value=float(df_current.at[selected_idx, "V_i"]), help="Штраф за дефицит")
         
-        # Строка 5
+        E_i = c1.number_input("E_i", value=float(df_current.at[selected_idx, "E_i"]), help="Эксплуатационные расходы")
+        Z_i = c2.number_input("Z_i", value=float(df_current.at[selected_idx, "Z_i"]), help="Риск поставщика")
+        
         A_i = c1.number_input("A_i", value=float(df_current.at[selected_idx, "A_i"]), help="Стоимость за 1 км")
         G_i = c2.number_input("G_i", value=float(df_current.at[selected_idx, "G_i"]), help="Стоимость погрузки/разгрузки")
-        F_i = c3.number_input("F_i", value=float(df_current.at[selected_idx, "F_i"]), help="Стоимость оборудования")
         
-        # Строка 6
-        Q_i = c1.number_input("Q_i", value=float(df_current.at[selected_idx, "Q_i"]), help="Исходный заказ")
-        L_i = c2.number_input("L_i", value=float(df_current.at[selected_idx, "L_i"]), help="Время поставки (дни)")
+        F_i = c1.number_input("F_i", value=float(df_current.at[selected_idx, "F_i"]), help="Стоимость оборудования")
+        Q_i = c2.number_input("Q_i", value=float(df_current.at[selected_idx, "Q_i"]), help="Исходный заказ")
+        
+        L_i = c1.number_input("L_i", value=float(df_current.at[selected_idx, "L_i"]), help="Время поставки (дни)")
 
-        # Обновление DataFrame при изменении любого инпута
+        # Сохранение значений
         df_current.loc[selected_idx, ["C_i", "H_i", "S_i", "T_i", "P_i", "R_i", "O_i", "W_i", "K_i", "V_i", "E_i", "Z_i", "A_i", "G_i", "F_i", "Q_i", "L_i"]] = [C_i, H_i, S_i, T_i, P_i, R_i, O_i, W_i, K_i, V_i, E_i, Z_i, A_i, G_i, F_i, Q_i, L_i]
 
-# 3. ПРАВАЯ ПАНЕЛЬ: ПЕРЕМЕННЫЕ (ТАБЛИЦА И КНОПКИ)
-with col_right:
-    st.markdown("#### 🎛️ Переменные параметры (Ограничения)")
-    edited_table = st.data_editor(
-        df_current[TABLE_COLUMNS],
-        use_container_width=True,
-        hide_index=True,
-        num_rows="dynamic",
-        column_config={"name": st.column_config.TextColumn("Товар (name)", width="medium")}
-    )
-    
-    # Синхронизация изменений таблицы в общую базу
-    for col in TABLE_COLUMNS:
-        df_current[col] = edited_table[col]
 
-    st.write("") # Небольшой отступ
-    c_btn1, c_btn2 = st.columns(2)
-    with c_btn1:
-        if st.button("💾 Сохранить БД", use_container_width=True):
-            save_inventory_df(df_current)
-            st.success("Данные успешно сохранены!")
-    with c_btn2:
-        if st.button("🚀 РАССЧИТАТЬ ОПТИМУМ", type="primary", use_container_width=True):
-            st.session_state['run_opt'] = True
+# 2. ГЛАВНЫЙ ЭКРАН: ПЕРЕМЕННЫЕ (ТАБЛИЦА И КНОПКИ)
+st.markdown("#### 🎛️ Переменные параметры (Ограничения)")
+edited_table = st.data_editor(
+    df_current[TABLE_COLUMNS],
+    use_container_width=True,
+    hide_index=True,
+    num_rows="dynamic",
+    column_config={"name": st.column_config.TextColumn("Товар (name)", width="medium")}
+)
+
+# Синхронизация изменений таблицы в общую базу
+for col in TABLE_COLUMNS:
+    df_current[col] = edited_table[col]
+
+st.write("") # Небольшой отступ
+c_btn1, c_btn2, _ = st.columns([1, 1, 2])
+with c_btn1:
+    if st.button("💾 Сохранить БД", use_container_width=True):
+        save_inventory_df(df_current)
+        st.success("Данные успешно сохранены!")
+with c_btn2:
+    if st.button("🚀 РАССЧИТАТЬ ОПТИМУМ", type="primary", use_container_width=True):
+        st.session_state['run_opt'] = True
 
 # --- БЛОК ВЫВОДА РЕЗУЛЬТАТОВ ---
 if st.session_state.get('run_opt', False):
