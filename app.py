@@ -317,7 +317,6 @@ def run_item_optimization(row: pd.Series, mode: str, weights: dict):
 
     return minimize(objective, np.array(x0, dtype=float), method="SLSQP", bounds=bounds, constraints=cons, options={"maxiter": 3000, "ftol": 1e-9, "disp": False})
 
-
 def score_single_candidate(candidate_df: pd.DataFrame, mode: str, globals_cfg: dict, weights: dict) -> float:
     try:
         result = run_optimization(candidate_df, mode, globals_cfg, weights)
@@ -434,4 +433,163 @@ edited_table = st.data_editor(
 for col in TABLE_COLUMN_ORDER: df_current[col] = edited_table[col]
 
 st.write("") 
-c_btn1, c_btn2, _ = st.columns(
+
+# --- ИСПРАВЛЕННАЯ СТРОКА ---
+c_btn1, c_btn2, empty_col = st.columns([1, 1, 2])
+
+with c_btn1:
+    if st.button("💾 Сохранить БД", use_container_width=True):
+        save_inventory_df(df_current)
+        st.success("Данные успешно сохранены!")
+        
+# КНОПКА ЗАПУСКА
+run_opt_clicked = c_btn2.button("🚀 РАССЧИТАТЬ ОПТИМУМ", type="primary", use_container_width=True)
+
+# --- ПРЯМОЕ ИСПОЛНЕНИЕ РАСЧЕТА ---
+if run_opt_clicked:
+    st.divider()
+    st.markdown("### 🏆 Результаты расчета оптимальных переменных")
+    
+    optimization_df, selection_notes = select_best_alternatives(df_current, mode, globals_cfg, weights)
+    validation_errors = validate_inputs(optimization_df, F_budget, W_total)
+    
+    if validation_errors:
+        for err in validation_errors: st.error(err)
+    else:
+        with st.spinner("Синтез оптимального решения..."):
+            # 1. Запуск глобальной оптимизации (с учетом ограничений)
+            result = run_optimization(optimization_df, mode, globals_cfg, weights)
+            
+            # 2. Запуск индивидуальных (идеальных) расчетов
+            ideal_data = []
+            for i in range(len(optimization_df)):
+                r = optimization_df.iloc[i]
+                res_ideal = run_item_optimization(r, mode, weights)
+                
+                if res_ideal and res_ideal.success:
+                    Q_id, I_id, SS_id, B_id = float(res_ideal.x[0]), float(res_ideal.x[1]), float(res_ideal.x[2]), float(res_ideal.x[3])
+                else:
+                    Q_id, I_id, SS_id, B_id = 0.0, 0.0, 0.0, 0.0
+                
+                ideal_data.append({
+                    "ID": row_id_label(r, i),
+                    "Товар": r["name"],
+                    "Ид_Заказ (Q)": Q_id, "Ид_Запас (I)": I_id, 
+                    "Ид_Страх.запас (SS)": SS_id, "Ид_Дефицит (B)": B_id,
+                    "Ид_Затраты (руб)": float(r["C"]) * Q_id
+                })
+            ideal_df = pd.DataFrame(ideal_data)
+            
+        if result is not None and result.success:
+            raw_val, final_metrics, _ = objective_and_metrics(result.x, optimization_df, mode, weights)
+            displayed_value = -raw_val if mode.startswith(("F3", "F6")) else raw_val
+            
+            st.success(f"🎯 Оптимальный план найден. Значение целевой функции: {displayed_value:,.4f}")
+            if selection_notes:
+                st.info("Лучшие альтернативы по повторяющимся наименованиям: " + "; ".join(selection_notes) + ".")
+
+            res_data = []
+            for i in range(len(optimization_df)):
+                r = optimization_df.iloc[i]
+                idx = i * 4
+                Q_opt, I_opt, SS_opt, B_opt = float(result.x[idx]), float(result.x[idx+1]), float(result.x[idx+2]), float(result.x[idx+3])
+                
+                N_opt = float(r["D"]) / max(Q_opt, 1e-6)
+                M_opt = float(r["D"]) / max(Q_opt, 1e-6)
+                U_opt = min(max(I_opt / max(float(r["W_i"]), 1e-6), 0.0), max(float(r["U_max"]), 0.0))
+                
+                res_data.append({
+                    "ID": row_id_label(r, i),
+                    "Товар": r["name"],
+                    "Заказ (Q)": Q_opt, "Запас (I)": I_opt, "Поставок (N)": N_opt, "Дефицит (B)": B_opt, 
+                    "Страх.запас (SS)": SS_opt, "Время (L)": float(r["L"]), "Рейсов (M)": M_opt, 
+                    "Загрузка (U)": U_opt, "Произв. (Y)": float(r["Y_prod"]), "Расст. (d)": float(r["d_dist"]),
+                    "Затраты (руб)": float(r["C"])*Q_opt,
+                    "Транспорт (руб)": float(r["T"]) * Q_opt,
+                    "Риск (руб)": float(r["V"]) * B_opt,
+                    "Макс. ВМ (W_i)": float(r["W_i"]),
+                    "Бюджет_Лимит": F_budget,
+                })
+                
+            res_df = pd.DataFrame(res_data)
+            
+            def color_limits(row):
+                styles = ['background-color: #1e3a23; color: white;'] * len(row) 
+                col_idx = {col: i for i, col in enumerate(row.index)}
+                
+                q, i, ss, w = float(row.get("Заказ (Q)", 0)), float(row.get("Запас (I)", 0)), float(row.get("Страх.запас (SS)", 0)), float(row.get("Макс. ВМ (W_i)", 1000))
+                cost, budget = float(row.get("Затраты (руб)", 0)), float(row.get("Бюджет_Лимит", 1e9))
+
+                red = 'background-color: #8c1d18; color: white; font-weight: bold;'
+                yellow = 'background-color: #b58900; color: white; font-weight: bold;'
+
+                q_style = i_style = styles[0]
+                if q + i >= w * 0.95: q_style = i_style = red
+                elif q + i >= w * 0.85: q_style = i_style = yellow
+                
+                if "Заказ (Q)" in col_idx: styles[col_idx["Заказ (Q)"]] = q_style
+                if "Запас (I)" in col_idx: styles[col_idx["Запас (I)"]] = i_style
+                if "Дефицит (B)" in col_idx: styles[col_idx["Дефицит (B)"]] = red
+                if ss > w * 0.8 and "Страх.запас (SS)" in col_idx: styles[col_idx["Страх.запас (SS)"]] = yellow
+                if cost > budget and "Затраты (руб)" in col_idx: styles[col_idx["Затраты (руб)"]] = red
+                elif cost >= budget * 0.8 and "Затраты (руб)" in col_idx: styles[col_idx["Затраты (руб)"]] = yellow
+
+                return styles
+
+            # Вывод 1: Глобальный расчет (с учетом бюджета и склада)
+            st.write("#### 1. Итоговые оптимальные параметры (С учетом ограничений бюджета и склада)")
+            display_df = res_df.style.apply(color_limits, axis=1).format({
+                "Заказ (Q)": "{:.2f}", "Запас (I)": "{:.2f}", "Поставок (N)": "{:.2f}", "Дефицит (B)": "{:.2f}", 
+                "Страх.запас (SS)": "{:.2f}", "Время (L)": "{:.2f}", "Рейсов (M)": "{:.2f}", 
+                "Загрузка (U)": "{:.4f}", "Произв. (Y)": "{:.2f}", "Расст. (d)": "{:.2f}", 
+                "Затраты (руб)": "{:,.2f}", "Транспорт (руб)": "{:,.2f}", "Риск (руб)": "{:,.2f}"
+            })
+            ordered_cols = ["ID", "Товар", "Заказ (Q)", "Запас (I)", "Поставок (N)", "Дефицит (B)", "Страх.запас (SS)", "Время (L)", "Рейсов (M)", "Загрузка (U)", "Произв. (Y)", "Расст. (d)", "Затраты (руб)", "Транспорт (руб)", "Риск (руб)"]
+            st.dataframe(display_df, use_container_width=True, hide_index=True, column_order=ordered_cols)
+
+            # Вывод 2: Идеальные параметры (изолированно)
+            st.write("#### 2. Идеальные параметры управления по каждой детали (БЕЗ учета общих ограничений)")
+            display_ideal_df = ideal_df.style.format({
+                "Ид_Заказ (Q)": "{:.2f}", "Ид_Запас (I)": "{:.2f}", 
+                "Ид_Страх.запас (SS)": "{:.2f}", "Ид_Дефицит (B)": "{:.2f}",
+                "Ид_Затраты (руб)": "{:,.2f}"
+            })
+            st.dataframe(display_ideal_df, use_container_width=True, hide_index=True)
+
+            # --- ЭКСЕЛЬ ---
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                res_df[ordered_cols].to_excel(writer, index=False, sheet_name="План_с_лимитами")
+                ideal_df.to_excel(writer, index=False, sheet_name="Идеальные_параметры")
+            st.download_button("📥 СКАЧАТЬ ОБА ПЛАНА В EXCEL", data=buffer.getvalue(), file_name="KADVI_Opt_Plan.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+            st.divider()
+
+            # --- ГРАФИКИ И АНАЛИТИКА ---
+            col_chart1, col_chart2 = st.columns(2)
+            with col_chart1:
+                fig1 = go.Figure()
+                fig1.add_trace(go.Bar(name="Объем заказа (Q_i)", x=res_df["Товар"], y=res_df["Заказ (Q)"]))
+                fig1.add_trace(go.Bar(name="Запас (I_i)", x=res_df["Товар"], y=res_df["Запас (I)"]))
+                fig1.add_trace(go.Scatter(x=res_df["Товар"], y=res_df["Макс. ВМ (W_i)"], mode="lines+markers", name="Предел вместимости (W_i)", line=dict(dash="dash", width=2, color="red")))
+                fig1.update_layout(title="Объем запасов vs Ограничение склада (С лимитами)", barmode="stack")
+                st.plotly_chart(fig1, use_container_width=True)
+
+            with col_chart2:
+                total_cost = float(res_df["Затраты (руб)"].sum())
+                fig2 = go.Figure(data=[go.Bar(name="Затраты закупки", x=["Общие затраты"], y=[total_cost], text=[f"{total_cost:,.0f} руб"], textposition="auto")])
+                fig2.add_hline(y=F_budget, line_dash="dash", line_color="red", annotation_text="Лимит бюджета", annotation_position="top left")
+                fig2.update_layout(title="Фактические затраты vs Бюджет", yaxis=dict(range=[0, max(F_budget * 1.2, total_cost * 1.2, 1.0)]))
+                st.plotly_chart(fig2, use_container_width=True)
+
+            st.divider()
+            st.write("#### Анализ эффективности по всем целевым критериям (F1 - F6)")
+            metrics_df = pd.DataFrame({
+                "Критерий": ["F1 (Совокупные затраты)", "F2 (Потери неопределенности)", "F3 (Уровень обеспечения)", "F4 (Риск сбоев)", "F5 (Транспорт и склад)", "F6 (Эффективность склада)"],
+                "Значение": [final_metrics["F1"], final_metrics["F2"], final_metrics["F3"], final_metrics["F4"], final_metrics["F5"], final_metrics["F6"]],
+                "Направление оптимизации": ["Min", "Min", "Max", "Min", "Min", "Max"]
+            })
+            st.dataframe(metrics_df.style.format({"Значение": "{:,.4f}"}), use_container_width=True, hide_index=True)
+
+        else:
+            st.error("❌ Алгоритму не удалось сойтись к решению. Попробуйте ослабить ограничения бюджета или вместимости.")
