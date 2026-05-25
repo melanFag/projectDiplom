@@ -19,14 +19,17 @@ with st.expander("📖 Спецификация параметров матем�
     * $I_i$ — текущий уровень запасов;
     * $SS_i$ — страховой запас;
     * $B_i$ — объем дефицита.
-    
+
     **2. Зависимые (расчетные) переменные:**
-    * $N_i$ — количество поставок ($D_i / Q_i$);
-    * $M_i$ — количество транспортных рейсов ($D_i / Q_i$);
-    * $U_i$ — уровень загрузки склада ($I_i / W_i$).
-    
+    * $N_i$ — количество поставок;
+    * $L_i$ — время поставки;
+    * $M_i$ — количество транспортных рейсов;
+    * $U_i$ — уровень загрузки склада и оборудования;
+    * $Y_i$ — производительность склада;
+    * $d_i$ — расстояние доставки.
+
     **3. Постоянные параметры (константы):**
-    * $C_i, H_i, S_i, T_i, P_i, R_i, K_i, D_i, L_i, W_i$ и весовые коэффициенты.
+    * $C_i, H_i, S_i, T_i, P_i, R_i, K_i, D_i, L_i, W_i, V_i, E_i, A_i, G_i, Fi_i, Y_i, C_{max}$ и глобальные параметры $F, W$.
     """)
 
 DB_NAME = Path(__file__).with_name("kadvi_model.db")
@@ -72,31 +75,31 @@ CONSTANT_PARAM_COLUMNS = [
 TABLE_COLUMN_ORDER = ["id", "name", *VARIABLE_PARAM_COLUMNS]
 
 CONSTANT_PARAM_LABELS = {
-    "C": "Цена закупки (C)",
-    "H": "Затраты хранения (H)",
-    "S": "Оформление заказа (S)",
-    "T": "Транспортные расходы (T)",
-    "P": "Вероятность задержки (P)",
-    "R": "Надежность поставщика (R)",
-    "K": "Качество поставки (K)",
-    "D": "Спрос (D)",
-    "D_fuzzy_min": "Нечеткий спрос min",
-    "D_fuzzy_max": "Нечеткий спрос max",
-    "L": "Срок поставки (L)",
-    "L_fuzzy_min": "Нечеткий срок min",
-    "L_fuzzy_max": "Нечеткий срок max",
-    "W_i": "Вместимость склада (W_i)",
-    "V": "Потери от дефицита (V)",
-    "E": "Эксплуатационные затраты (E)",
-    "Z": "Риск поставщика (Z)",
-    "d_dist": "Расстояние доставки (d)",
-    "T_max": "Макс. транспортные затраты",
-    "A": "Стоимость/км (A)",
-    "G": "Погрузка-разгрузка (G)",
-    "Fi_cost": "Оборудование (Fi)",
-    "Y_prod": "Производительность склада (Y)",
-    "Y_min": "Мин. производительность",
-    "C_max": "Макс. цена (C_max)",
+    "C": "C_i — цена закупки",
+    "H": "H_i — затраты хранения",
+    "S": "S_i — оформление заказа",
+    "T": "T_i — транспортные расходы",
+    "P": "P_i — вероятность задержки",
+    "R": "R_i — надежность поставщика",
+    "K": "K_i — качество поставки",
+    "D": "D_i — спрос",
+    "D_fuzzy_min": "D_i min — нечеткий спрос",
+    "D_fuzzy_max": "D_i max — нечеткий спрос",
+    "L": "L_i — срок поставки",
+    "L_fuzzy_min": "L_i min — нечеткий срок",
+    "L_fuzzy_max": "L_i max — нечеткий срок",
+    "W_i": "W_i — вместимость склада",
+    "V": "V_i — потери от дефицита",
+    "E": "E_i — эксплуатационные затраты",
+    "Z": "Z_i — риск поставщика",
+    "d_dist": "d_i — расстояние доставки",
+    "T_max": "T_max — макс. транспортные затраты",
+    "A": "A_i — стоимость/км",
+    "G": "G_i — погрузка-разгрузка",
+    "Fi_cost": "Fi_i — оборудование",
+    "Y_prod": "Y_i — производительность склада",
+    "Y_min": "Y_min — мин. производительность",
+    "C_max": "C_max — макс. цена",
 }
 
 CONSTANT_PARAM_GROUPS = [
@@ -164,7 +167,8 @@ def seed_database(force_reset: bool = False) -> None:
             save_inventory_df(seed_rows(), conn=conn, append=False)
 
 def normalize_text(value, default=""):
-    if pd.isna(value): return default
+    if pd.isna(value):
+        return default
     text = str(value).strip()
     return text if text else default
 
@@ -195,14 +199,18 @@ def infer_defaults_from_row(row: pd.Series) -> dict:
     return d
 
 def normalize_inventory_df(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty: df = seed_rows()
-    else: df = df.copy()
+    if df is None or df.empty:
+        df = seed_rows()
+    else:
+        df = df.copy()
 
     for col in SCHEMA_COLUMNS:
-        if col not in df.columns: df[col] = pd.NA if col == "id" else DEFAULTS[col]
+        if col not in df.columns:
+            df[col] = pd.NA if col == "id" else DEFAULTS[col]
 
     df["name"] = df["name"].apply(lambda x: normalize_text(x, "Новая позиция"))
-    for col in NUMERIC_COLUMNS: df[col] = coerce_numeric(df[col], DEFAULTS[col])
+    for col in NUMERIC_COLUMNS:
+        df[col] = coerce_numeric(df[col], DEFAULTS[col])
 
     rows = [infer_defaults_from_row(row) for _, row in df.iterrows()]
     normalized = pd.DataFrame(rows)
@@ -248,7 +256,8 @@ def save_inventory_df(df: pd.DataFrame, conn: sqlite3.Connection | None = None, 
         close_conn = True
     try:
         ensure_schema(conn)
-        if not append: conn.execute("DELETE FROM inventory")
+        if not append:
+            conn.execute("DELETE FROM inventory")
         cols = SCHEMA_COLUMNS
         sql = f"INSERT INTO inventory ({', '.join(cols)}) VALUES ({', '.join(['?'] * len(cols))})"
         valid_ids = pd.to_numeric(records["id"], errors="coerce").dropna().astype(int)
@@ -271,7 +280,8 @@ def save_inventory_df(df: pd.DataFrame, conn: sqlite3.Connection | None = None, 
         conn.executemany(sql, data)
         conn.commit()
     finally:
-        if close_conn: conn.close()
+        if close_conn:
+            conn.close()
 
 def safe_div(a: float, b: float, eps: float = 1e-9) -> float:
     return a / (b if abs(b) > eps else eps)
@@ -323,17 +333,40 @@ def objective_and_metrics(x: np.ndarray, df: pd.DataFrame, mode: str, weights: d
         metrics["F6"] += F6_i
 
         per_item.append({
-            "ID": row_id_label(r, i), "Товар": r["name"], "Q": Q, "I": I, "SS": SS, "B": B, "N_i": N_i, "M_i": M_i,
-            "U_i": U_i, "F1_i": F1_i, "F2_i": F2_i, "F3_i": F3_i, "F4_i": F4_i, "F5_i": F5_i, "F6_i": F6_i,
+            "ID": row_id_label(r, i),
+            "Товар": r["name"],
+            "Q_i": Q,
+            "I_i": I,
+            "SS_i": SS,
+            "B_i": B,
+            "N_i": N_i,
+            "L_i": float(r["L"]),
+            "M_i": M_i,
+            "U_i": U_i,
+            "Y_i": float(r["Y_prod"]),
+            "d_i": float(r["d_dist"]),
+            "F1_i": F1_i,
+            "F2_i": F2_i,
+            "F3_i": F3_i,
+            "F4_i": F4_i,
+            "F5_i": F5_i,
+            "F6_i": F6_i,
         })
 
-    if mode.startswith("F1"): total = metrics["F1"]
-    elif mode.startswith("F2"): total = metrics["F2"]
-    elif mode.startswith("F3"): total = -metrics["F3"]
-    elif mode.startswith("F4"): total = metrics["F4"]
-    elif mode.startswith("F5"): total = metrics["F5"]
-    elif mode.startswith("F6"): total = -metrics["F6"]
-    else: total = metrics["F1"]
+    if mode.startswith("F1"):
+        total = metrics["F1"]
+    elif mode.startswith("F2"):
+        total = metrics["F2"]
+    elif mode.startswith("F3"):
+        total = -metrics["F3"]
+    elif mode.startswith("F4"):
+        total = metrics["F4"]
+    elif mode.startswith("F5"):
+        total = metrics["F5"]
+    elif mode.startswith("F6"):
+        total = -metrics["F6"]
+    else:
+        total = metrics["F1"]
 
     return total, metrics, per_item
 
@@ -370,7 +403,8 @@ def build_bounds(df_input: pd.DataFrame) -> tuple[list[tuple[float, float]], lis
         q_lower, q_upper = q_min, max(q_min, q_max)
         i_lower, i_upper = i_min, max(i_min, w_i * u_max)
         ss_lower, ss_upper = ss_min, min(ss_max, w_i)
-        if ss_upper < ss_lower: ss_upper = ss_lower
+        if ss_upper < ss_lower:
+            ss_upper = ss_lower
         b_lower, b_upper = 0.0, min(b_max, max(d, 0.0))
 
         bounds.extend([(q_lower, q_upper), (i_lower, i_upper), (ss_lower, ss_upper), (b_lower, b_upper)])
@@ -458,21 +492,32 @@ def select_best_alternatives(df_input: pd.DataFrame, mode: str, globals_cfg: dic
 
 def style_result_table(res_df: pd.DataFrame):
     def color_limits(row):
-        q_i, i_i, ss_i, b_i, w_i, budget = row["Заказ (Q)"], row["Запас (I)"], row["Страх.запас (SS)"], row["Дефицит (B)"], row["Макс. ВМ (W_i)"], row["Бюджет_Лимит"]
+        q_i, i_i, ss_i, b_i, w_i, budget = row["Q_i"], row["I_i"], row["SS_i"], row["B_i"], row["Макс. ВМ (W_i)"], row["Бюджет_Лимит"]
         q_style = i_style = ss_style = b_style = cost_style = "background-color: #1e4620; color: white;"
 
-        if q_i + i_i >= w_i * 0.95: q_style = i_style = "background-color: #8c1d18; color: white; font-weight: bold;"
-        elif q_i + i_i >= w_i * 0.85: q_style = i_style = "background-color: #b58900; color: white; font-weight: bold;"
-        if ss_i > 0.8 * w_i: ss_style = "background-color: #b58900; color: white; font-weight: bold;"
-        if b_i > 0: b_style = "background-color: #8c1d18; color: white; font-weight: bold;"
-        if row["Затраты (руб)"] > budget: cost_style = "background-color: #8c1d18; color: white; font-weight: bold;"
-        elif row["Затраты (руб)"] >= budget * 0.8: cost_style = "background-color: #b58900; color: white; font-weight: bold;"
+        if q_i + i_i >= w_i * 0.95:
+            q_style = i_style = "background-color: #8c1d18; color: white; font-weight: bold;"
+        elif q_i + i_i >= w_i * 0.85:
+            q_style = i_style = "background-color: #b58900; color: white; font-weight: bold;"
+        if ss_i > 0.8 * w_i:
+            ss_style = "background-color: #b58900; color: white; font-weight: bold;"
+        if b_i > 0:
+            b_style = "background-color: #8c1d18; color: white; font-weight: bold;"
+        if row["Затраты (руб)"] > budget:
+            cost_style = "background-color: #8c1d18; color: white; font-weight: bold;"
+        elif row["Затраты (руб)"] >= budget * 0.8:
+            cost_style = "background-color: #b58900; color: white; font-weight: bold;"
 
         styles, col_idx = [""] * len(row), {col: i for i, col in enumerate(row.index)}
-        styles[col_idx["Заказ (Q)"]], styles[col_idx["Запас (I)"]], styles[col_idx["Страх.запас (SS)"]], styles[col_idx["Дефицит (B)"]], styles[col_idx["Затраты (руб)"]] = q_style, i_style, ss_style, b_style, cost_style
+        styles[col_idx["Q_i"]], styles[col_idx["I_i"]], styles[col_idx["SS_i"]], styles[col_idx["B_i"]], styles[col_idx["Затраты (руб)"]] = q_style, i_style, ss_style, b_style, cost_style
         return styles
 
-    return res_df.style.apply(color_limits, axis=1).format({"Заказ (Q)": "{:.2f}", "Запас (I)": "{:.2f}", "Страх.запас (SS)": "{:.2f}", "Дефицит (B)": "{:.2f}", "Затраты (руб)": "{:,.2f}"})
+    return res_df.style.apply(color_limits, axis=1).format({
+        "Q_i": "{:.2f}", "I_i": "{:.2f}", "SS_i": "{:.2f}", "B_i": "{:.2f}",
+        "N_i": "{:.2f}", "L_i": "{:.2f}", "M_i": "{:.2f}", "U_i": "{:.4f}",
+        "Y_i": "{:.2f}", "d_i": "{:.2f}", "Затраты (руб)": "{:,.2f}",
+        "Транспорт (руб)": "{:,.2f}", "Риск (руб)": "{:,.2f}",
+    })
 
 df_current = load_inventory_df()
 sidebar_df = df_current.copy()
@@ -493,7 +538,7 @@ with st.sidebar:
             selected_row_idx = st.selectbox(
                 "Номенклатура",
                 options=row_options,
-                format_func=lambda idx: f"ID {row_id_label(sidebar_df.iloc[idx], idx)} · {normalize_text(sidebar_df.iloc[idx]['name'], f'Sтрока {idx + 1}')}",
+                format_func=lambda idx: f"ID {row_id_label(sidebar_df.iloc[idx], idx)} · {normalize_text(sidebar_df.iloc[idx]['name'], f'Строка {idx + 1}')}",
             )
 
             for group_name, group_columns in CONSTANT_PARAM_GROUPS:
@@ -547,7 +592,7 @@ with st.sidebar:
             save_inventory_df(pd.read_excel(uploaded_file))
             st.success("БД успешно обновлена из Excel!")
             st.rerun()
-        except Exception as e:
+        except Exception:
             st.error("Ошибка при чтении Excel файла. Проверьте формат.")
 
 globals_cfg = {
@@ -619,14 +664,16 @@ with db_col2:
 st.divider()
 
 if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕТ", type="primary"):
-    if len(edited_df) == 0: st.stop()
+    if len(edited_df) == 0:
+        st.stop()
 
     prepared_df = normalize_inventory_df(edited_df)
     optimization_df, selection_notes = select_best_alternatives(prepared_df, mode, globals_cfg, weights)
 
     validation_errors = validate_inputs(optimization_df, F_budget, W_total)
     if validation_errors:
-        for err in validation_errors: st.error(err)
+        for err in validation_errors:
+            st.error(err)
         st.stop()
 
     with st.spinner("Синтез оптимального решения..."):
@@ -663,19 +710,14 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
 
                 "Q_i": Q_val,
                 "I_i": I_val,
-                "SS_i": SS_val,
-                "B_i": B_val,
                 "N_i": N_val,
+                "B_i": B_val,
+                "SS_i": SS_val,
                 "L_i": float(row["L"]),
                 "M_i": M_val,
                 "U_i": U_val,
                 "Y_i": float(row["Y_prod"]),
                 "d_i": float(row["d_dist"]),
-
-                "Заказ (Q)": Q_val,
-                "Запас (I)": I_val,
-                "Страх.запас (SS)": SS_val,
-                "Дефицит (B)": B_val,
 
                 "Затраты (руб)": float(row["C"]) * Q_val,
                 "Транспорт (руб)": float(row["T"]) * Q_val,
@@ -689,13 +731,17 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
         c1, c2, c3, c4 = st.columns(4)
         total_cost = float(res_df["Затраты (руб)"].sum())
         c1.metric("Использовано бюджета", f"{total_cost:,.0f} руб", f"{(total_cost / max(F_budget, 1e-9) * 100):.1f}%")
-        c2.metric("Загрузка склада", f"{float(res_df['Запас (I)'].sum()):,.0f} ед")
+        c2.metric("Загрузка склада", f"{float(res_df['I_i'].sum()):,.0f} ед")
         c3.metric("Транспортные затраты", f"{float(res_df['Транспорт (руб)'].sum()):,.0f} руб")
         c4.metric("Риск-дефицит", f"{float(res_df['Риск (руб)'].sum()):,.0f} руб")
 
         st.write("#### Текстовое заключение по оптимальному варианту:")
         for _, row in res_df.iterrows():
-            st.info(f"Для детали **{row['Товар']}** (ID **{row['ID']}**) оптимально разместить заказ на **{row['Заказ (Q)']:.0f} ед.** При этом текущий запас составит **{row['Запас (I)']:.0f} ед.**, а резервный (страховой) запас: **{row['Страх.запас (SS)']:.0f} ед.** Возможный объем дефицита сведен к {row['Дефицит (B)']:.0f} ед.")
+            st.info(
+                f"Для детали **{row['Товар']}** (ID **{row['ID']}**) "
+                f"оптимально: **Q_i = {row['Q_i']:.0f}**, **I_i = {row['I_i']:.0f}**, "
+                f"**SS_i = {row['SS_i']:.0f}**, **B_i = {row['B_i']:.0f}**."
+            )
 
         st.write("#### Оптимальные параметры управления")
         st.dataframe(
@@ -704,9 +750,7 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
             hide_index=True,
             column_order=[
                 "ID", "Товар",
-                "Q_i", "I_i", "SS_i", "B_i",
-                "N_i", "L_i", "M_i", "U_i", "Y_i", "d_i",
-                "Заказ (Q)", "Запас (I)", "Страх.запас (SS)", "Дефицит (B)",
+                "Q_i", "I_i", "N_i", "B_i", "SS_i", "L_i", "M_i", "U_i", "Y_i", "d_i",
                 "Затраты (руб)", "Транспорт (руб)", "Риск (руб)"
             ]
         )
@@ -714,15 +758,26 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             res_df.to_excel(writer, index=False, sheet_name="План_закупок")
-        st.download_button("📥 СКАЧАТЬ ПЛАН В EXCEL", data=buffer.getvalue(), file_name="KADVI_Opt_Plan.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.download_button(
+            "📥 СКАЧАТЬ ПЛАН В EXCEL",
+            data=buffer.getvalue(),
+            file_name="KADVI_Opt_Plan.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
         st.divider()
         col_chart1, col_chart2 = st.columns(2)
         with col_chart1:
             fig1 = go.Figure()
-            fig1.add_trace(go.Bar(name="Объем заказа (Q)", x=res_df["Товар"], y=res_df["Заказ (Q)"]))
-            fig1.add_trace(go.Bar(name="Запас (I)", x=res_df["Товар"], y=res_df["Запас (I)"]))
-            fig1.add_trace(go.Scatter(x=res_df["Товар"], y=res_df["Макс. ВМ (W_i)"], mode="lines+markers", name="Предел вместимости (W_i)", line=dict(dash="dash", width=2, color="red")))
+            fig1.add_trace(go.Bar(name="Объем заказа (Q_i)", x=res_df["Товар"], y=res_df["Q_i"]))
+            fig1.add_trace(go.Bar(name="Запас (I_i)", x=res_df["Товар"], y=res_df["I_i"]))
+            fig1.add_trace(go.Scatter(
+                x=res_df["Товар"],
+                y=res_df["Макс. ВМ (W_i)"],
+                mode="lines+markers",
+                name="Предел вместимости (W_i)",
+                line=dict(dash="dash", width=2, color="red")
+            ))
             fig1.update_layout(title="Объем запасов vs Ограничение склада", barmode="stack")
             st.plotly_chart(fig1, use_container_width=True)
 
@@ -736,9 +791,19 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
         st.write("#### Анализ эффективности по всем целевым критериям (F1 - F6)")
 
         metrics_df = pd.DataFrame({
-            "Критерий": ["F1 (Совокупные затраты)", "F2 (Потери неопределенности)", "F3 (Уровень обеспечения)", "F4 (Риск сбоев)", "F5 (Транспорт и склад)", "F6 (Эффективность склада)"],
+            "Критерий": [
+                "F1 (Совокупные затраты)",
+                "F2 (Потери неопределенности)",
+                "F3 (Уровень обеспечения)",
+                "F4 (Риск сбоев)",
+                "F5 (Транспорт и склад)",
+                "F6 (Эффективность склада)"
+            ],
             "Значение": [metrics["F1"], metrics["F2"], metrics["F3"], metrics["F4"], metrics["F5"], metrics["F6"]],
-            "Направление оптимизации": ["Минимизация (Min)", "Минимизация (Min)", "Максимизация (Max)", "Минимизация (Min)", "Минимизация (Min)", "Максимизация (Max)"]
+            "Направление оптимизации": [
+                "Минимизация (Min)", "Минимизация (Min)", "Максимизация (Max)",
+                "Минимизация (Min)", "Минимизация (Min)", "Максимизация (Max)"
+            ]
         })
         st.dataframe(metrics_df.style.format({"Значение": "{:,.4f}"}), use_container_width=True, hide_index=True)
     else:
