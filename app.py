@@ -128,7 +128,7 @@ def run_optimization(df_input, mode, F_budget, W_total):
 
 # --- ИНТЕРФЕЙС ПОЛЬЗОВАТЕЛЯ ---
 
-# 1. SIDEBAR (Слева: Режим, Константы, затем Глобальные переменные)
+# 1. SIDEBAR (Слева: Режим, Константы, Глобальные переменные и ЗАГРУЗКА ИЗ EXCEL)
 with st.sidebar:
     st.header("⚙️ Режим расчета")
     mode = st.selectbox("🎯 Целевая функция:", [
@@ -139,7 +139,6 @@ with st.sidebar:
 
     st.divider()
     
-    # ПОСТОЯННЫЕ ПАРАМЕТРЫ СТРОГО ПЕРЕД ГЛОБАЛЬНЫМИ
     st.markdown("### 🔒 Постоянные параметры")
     selected_idx = st.selectbox(
         "📝 Выбор позиции:", 
@@ -172,15 +171,26 @@ with st.sidebar:
 
     st.divider()
 
-    # ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ПОД КОНСТАНТАМИ
     st.markdown("### 🌍 Глобальные переменные")
     F_budget = st.number_input("F (Бюджет, руб)", value=5000000.0, step=100000.0)
     W_total = st.number_input("W (Склад, ед)", value=10000.0, step=1000.0)
 
+    st.divider()
+
+    # --- ВОТ ОН, ВОЗВРАЩЕННЫЙ БЛОК ЗАГРУЗКИ ИЗ EXCEL ---
+    st.markdown("### 📥 Импорт данных")
+    uploaded_file = st.file_uploader("Загрузить БД (Excel)", type=["xlsx"])
+    if uploaded_file is not None:
+        try:
+            save_inventory_df(pd.read_excel(uploaded_file))
+            st.success("БД успешно обновлена из Excel!")
+            st.rerun()
+        except Exception:
+            st.error("Ошибка при чтении Excel файла. Проверьте формат данных.")
+
 
 # 2. ГЛАВНЫЙ ЭКРАН: ТАБЛИЦА ПЕРЕМЕННЫХ И КНОПКИ
 st.markdown("### 🎛️ Переменные параметры")
-# Таблица содержит СТРОГО Q_i, I_i, N_i, B_i, SS_i, L_i, M_i, U_i, Y_i, d_i
 edited_table = st.data_editor(
     df_current[TABLE_COLUMNS],
     use_container_width=True,
@@ -260,7 +270,7 @@ if st.session_state.get('run_opt', False):
             hide_index=True
         )
 
-        # --- ЭКСЕЛЬ ---
+        # --- ЭКСЕЛЬ (ВЫГРУЗКА РЕЗУЛЬТАТА) ---
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             res_df.drop(columns=["W_i"]).to_excel(writer, index=False, sheet_name="План_закупок")
