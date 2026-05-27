@@ -8,9 +8,8 @@ import plotly.graph_objects as go
 import streamlit as st
 from scipy.optimize import minimize
 
-st.set_page_config(page_title="КАДВИ: АПК Оптимизации Запасов", layout="wide")
-st.title("🛠 АПК управления запасами ПАО «КАДВИ»")
-st.markdown("### Итоговая экономико-математическая модель (Дипломный проект)")
+st.set_page_config(page_title="КАДВИ: управление затратами", layout="wide")
+st.title('Экономико-математическая модель управления затратами ПАО "КАДВИ"')
 
 with st.expander("📖 Спецификация параметров математической модели"):
     st.markdown("""
@@ -110,32 +109,79 @@ CONSTANT_PARAM_GROUPS = [
 ]
 
 def seed_rows():
-    rows = [
-        {
-            "name": "Вал коленчатый", "C": 2500, "H": 120, "S": 450, "T": 80, "P": 0.15, 
-            "R": 0.95, "K": 0.98, "D": 400, "D_fuzzy_min": 350, "D_fuzzy_max": 450,
-            "L": 10, "L_fuzzy_min": 8, "L_fuzzy_max": 14, "W_i": 500, "N_max": 12, "B_max": 40,
-            "Q_min": 20, "Q_max": 600, "SS_min": 15, "SS_max": 120, "I_min": 10, "V": 0.5, 
-            "E": 1.2, "Z": 0.8, "M_max": 5, "d_dist": 150, "T_max": 50000, "A": 12, 
-            "G": 300, "Fi_cost": 500, "U_max": 0.85, "Y_prod": 100, "Y_min": 50, "C_max": 3000,
-        },
-        {
-            "name": "Шестерня", "C": 850, "H": 40, "S": 200, "T": 30, "P": 0.10, "R": 0.98, 
-            "K": 0.99, "D": 1200, "D_fuzzy_min": 1100, "D_fuzzy_max": 1300, "L": 5, 
-            "L_fuzzy_min": 4, "L_fuzzy_max": 7, "W_i": 1000, "N_max": 24, "B_max": 100,
-            "Q_min": 50, "Q_max": 1500, "SS_min": 40, "SS_max": 200, "I_min": 20, "V": 0.3, 
-            "E": 0.9, "Z": 0.4, "M_max": 10, "d_dist": 80, "T_max": 45000, "A": 8, 
-            "G": 150, "Fi_cost": 200, "U_max": 0.90, "Y_prod": 200, "Y_min": 100, "C_max": 1200,
-        },
-        {
-            "name": "Корпус", "C": 4200, "H": 300, "S": 800, "T": 250, "P": 0.20, "R": 0.90, 
-            "K": 0.95, "D": 150, "D_fuzzy_min": 130, "D_fuzzy_max": 180, "L": 20, 
-            "L_fuzzy_min": 15, "L_fuzzy_max": 30, "W_i": 300, "N_max": 6, "B_max": 20,
-            "Q_min": 5, "Q_max": 250, "SS_min": 10, "SS_max": 80, "I_min": 5, "V": 0.7, 
-            "E": 1.5, "Z": 1.2, "M_max": 3, "d_dist": 300, "T_max": 40000, "A": 20, 
-            "G": 600, "Fi_cost": 800, "U_max": 0.80, "Y_prod": 50, "Y_min": 20, "C_max": 5000,
-        },
+    families = [
+        ("Шестерня", 820, 1180, 42, 205, 32, 5, 980),
+        ("Вал коленчатый", 2480, 390, 118, 450, 82, 10, 520),
+        ("Корпус", 4100, 155, 295, 780, 245, 19, 310),
+        ("Подшипник", 560, 1500, 28, 175, 22, 4, 1250),
+        ("Поршень", 1450, 720, 76, 320, 54, 7, 760),
+        ("Клапан", 430, 1800, 20, 140, 18, 3, 1350),
+        ("Муфта", 980, 860, 58, 260, 41, 6, 840),
+        ("Фланец", 1250, 640, 70, 290, 48, 8, 700),
+        ("Ротор", 3100, 260, 185, 560, 155, 13, 410),
+        ("Статор", 3350, 230, 205, 600, 170, 14, 390),
     ]
+
+    def clamp(value, min_value, max_value):
+        return max(min_value, min(max_value, value))
+
+    rows = []
+    for i in range(100):
+        name, base_c, demand, storage, order_cost, transport, lead, capacity = families[i % len(families)]
+        supplier_variant = i // len(families) + 1
+        wave = ((i * 37) % 17) - 8
+        price_factor = 0.86 + supplier_variant * 0.025 + wave * 0.006
+        demand_factor = 0.92 + ((i * 11) % 19) / 100
+        lead_factor = 0.82 + ((i * 7) % 15) / 50
+        d_value = round(demand * demand_factor)
+        l_value = max(1, round(lead * lead_factor))
+        c_value = round(base_c * price_factor)
+        w_i = round(capacity * (0.92 + ((i * 3) % 14) / 100))
+        q_min = max(1, round(d_value * (0.012 + (supplier_variant % 4) * 0.002)))
+        q_max = max(q_min + 1, round(d_value * (0.86 + (i % 5) * 0.04)))
+        ss_min = max(1, round(d_value * (0.018 + (i % 4) * 0.003)))
+        ss_max = max(ss_min + 1, round(d_value * (0.20 + (i % 6) * 0.018)))
+        ss_max = min(max(ss_max, d_value - q_max + 1), w_i)
+        i_min = max(1, round(ss_min * 0.45))
+        b_max = max(0, round(d_value * (0.04 + (i % 7) * 0.008)))
+
+        rows.append({
+            "name": name,
+            "C": c_value,
+            "H": round(storage * (0.85 + supplier_variant * 0.025), 2),
+            "S": round(order_cost * (0.90 + (i % 5) * 0.035), 2),
+            "T": round(transport * (0.88 + supplier_variant * 0.03), 2),
+            "P": round(clamp(0.05 + ((i * 9) % 18) / 100 + supplier_variant * 0.002, 0.03, 0.30), 4),
+            "R": round(clamp(0.88 + ((i * 13) % 12) / 100 - supplier_variant * 0.002, 0.82, 0.99), 4),
+            "K": round(clamp(0.90 + ((i * 5) % 10) / 100 - supplier_variant * 0.0015, 0.84, 0.995), 4),
+            "D": d_value,
+            "D_fuzzy_min": max(0, round(d_value * 0.9)),
+            "D_fuzzy_max": round(d_value * 1.1),
+            "L": l_value,
+            "L_fuzzy_min": max(1, round(l_value * 0.8)),
+            "L_fuzzy_max": max(l_value + 1, round(l_value * 1.25)),
+            "W_i": w_i,
+            "N_max": max(1, round(d_value / max(q_min, 1) * 1.8)),
+            "B_max": b_max,
+            "Q_min": q_min,
+            "Q_max": q_max,
+            "SS_min": ss_min,
+            "SS_max": ss_max,
+            "I_min": i_min,
+            "V": round(0.2 + ((i * 4) % 12) / 10, 2),
+            "E": round(0.6 + ((i * 5) % 12) / 10, 2),
+            "Z": round(0.35 + ((i * 6) % 13) / 10, 2),
+            "M_max": max(1, round(d_value / max(q_min, 1) * 1.6)),
+            "d_dist": round(60 + ((i * 23) % 340), 0),
+            "T_max": round(transport * q_max * (1.05 + supplier_variant * 0.015), 0),
+            "A": round(6 + ((i * 7) % 18), 2),
+            "G": round(120 + ((i * 31) % 620), 2),
+            "Fi_cost": round(180 + ((i * 19) % 850), 2),
+            "U_max": round(0.78 + ((i * 3) % 17) / 100, 4),
+            "Y_prod": round(45 + ((i * 17) % 230), 0),
+            "Y_min": round(20 + ((i * 11) % 110), 0),
+            "C_max": round(c_value * 1.18, 0),
+        })
     return pd.DataFrame(rows)
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -393,7 +439,11 @@ def build_bounds(df_input: pd.DataFrame) -> tuple[list[tuple[float, float]], lis
         b_lower, b_upper = 0.0, min(b_max, max(d, 0.0))
 
         bounds.extend([(q_lower, q_upper), (i_lower, i_upper), (ss_lower, ss_upper), (b_lower, b_upper)])
-        x0.extend([(q_lower + q_upper) / 2.0, (i_lower + i_upper) / 2.0, (ss_lower + ss_upper) / 2.0, b_upper / 2.0])
+        ss0 = ss_upper
+        q0 = min(q_upper, max(q_lower, d - ss0))
+        if q0 + ss0 < d:
+            q0 = q_upper
+        x0.extend([q0, i_lower, ss0, b_lower])
 
     return bounds, x0
 
@@ -542,9 +592,9 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Глобальные параметры ввода")
-    f_budget_str = st.text_input("Общий бюджет закупок (F), руб.", value="5000000")
+    f_budget_str = st.text_input("Общий бюджет закупок (F), руб.", value="50000000")
     try: F_budget = float(f_budget_str.replace(" ", "").replace(",", "."))
-    except ValueError: F_budget = 5_000_000.0
+    except ValueError: F_budget = 50_000_000.0
     W_total = st.number_input("Общая емкость склада (W)", min_value=0.0, value=float(sidebar_df["W_i"].sum() * 1.5), step=100.0)
     
     f2_is_active = mode.startswith(("F2", "F7"))
@@ -587,7 +637,7 @@ with st.sidebar:
 
     if not sidebar_df.empty:
         st.divider()
-        with st.expander("Дополнительные обозначения (не участвуют в расчете)", expanded=True):
+        with st.expander("Ввод значений нечеткой логики и ограничений", expanded=True):
             passive_row = sidebar_df.iloc[selected_row_idx]
             passive_values = [
                 ("D_i — прогнозируемый спрос", float(passive_row["D"])),
@@ -615,7 +665,6 @@ with st.sidebar:
                     label,
                     value=value,
                     format="%.4f",
-                    disabled=True,
                     key=f"passive_{selected_row_idx}_{passive_idx}",
                 )
 
@@ -633,7 +682,7 @@ globals_cfg = {
     "F_budget": F_budget, "W_total": W_total,
 }
 
-st.write("### Исходные данные номенклатуры ПАО «КАДВИ»")
+st.write("### Оптимизационные параметры")
 
 column_config = {
     "id": st.column_config.NumberColumn("ID", disabled=True), "name": st.column_config.TextColumn("Наименование", required=True),
@@ -768,7 +817,7 @@ if st.button("🚀 ЗАПУСТИТЬ ОПТИМИЗАЦИОННЫЙ РАСЧЕ�
             st.plotly_chart(fig2, use_container_width=True)
 
         st.divider()
-        st.write("#### Анализ эффективности по всем целевым критериям (F1 - F7)")
+        st.write("#### Анализ эффективности по всем целевым функциям (F1 - F7)")
         
         # Вместо радарной диаграммы строим строгую академическую Bar-таблицу
         metrics_df = pd.DataFrame({
