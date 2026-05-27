@@ -640,26 +640,18 @@ with st.sidebar:
         with st.expander("Ввод значений нечеткой логики и ограничений", expanded=True):
             passive_row = sidebar_df.iloc[selected_row_idx]
             passive_values = [
-                ("D_i — прогнозируемый спрос", float(passive_row["D"])),
-                ("R_i^0 — нормативный уровень надежности поставщика", float(weights.get("R0", 0.95))),
-                ("C_i^0 — нормативные эксплуатационные затраты склада", float(passive_row["C"]) * max(float(passive_row["Q_min"]), 1.0) * float(weights.get("C0_factor", 0.9))),
-                ("Q^max — максимально допустимый суммарный объем заказа", float(sidebar_df["Q_max"].sum())),
-                ("SS^max — максимально допустимый суммарный страховой запас", float(sidebar_df["SS_max"].sum())),
-                ("P^max — максимально допустимый риск системы", float(sidebar_df["P"].max())),
-                ("V^max — максимально допустимые потери от дефицита", float((sidebar_df["V"] * sidebar_df["B_max"]).sum())),
-                ("E^max — максимально допустимые логистические затраты", float((sidebar_df["E"] * sidebar_df["M_max"]).sum())),
-                ("T^max — максимально допустимые транспортные расходы", float(sidebar_df["T_max"].sum())),
-                ("M — максимально допустимое количество рейсов", float(sidebar_df["M_max"].sum())),
-                ("Y_i^min — минимально допустимая производительность склада", float(passive_row["Y_min"])),
-                ("C_i^max — максимально допустимые эксплуатационные затраты", float(passive_row["C_max"])),
-                ("D_i^min", float(passive_row["D_fuzzy_min"])),
-                ("D_i^0", float(passive_row["D"])),
-                ("D_i^max", float(passive_row["D_fuzzy_max"])),
-                ("L_i^min", float(passive_row["L_fuzzy_min"])),
-                ("L_i^max", float(passive_row["L_fuzzy_max"])),
-                ("L_i^2", float(passive_row["L_fuzzy_max"])),
-                ("L_i^1", float(passive_row["L_fuzzy_min"])),
+                ("Q_i — объем заказа", float(passive_row["Q_min"])),
+                ("I_i — уровень запасов", float(passive_row["I_min"])),
+                ("SS_i — страховой запас", float(passive_row["SS_min"])),
+                ("B_i — объем дефицита", float(passive_row["B_max"])),
+                ("N_i — количество поставок", float(passive_row["N_max"])),
+                ("L_i — время поставки", float(passive_row["L"])),
+                ("M_i — количество транспортных рейсов", float(passive_row["M_max"])),
+                ("U_i — уровень загрузки склада и оборудования", float(passive_row["U_max"])),
+                ("Y_i — производительность склада", float(passive_row["Y_prod"])),
+                ("d_i — расстояние доставки", float(passive_row["d_dist"])),
             ]
+
             for passive_idx, (label, value) in enumerate(passive_values):
                 st.number_input(
                     label,
