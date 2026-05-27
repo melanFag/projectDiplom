@@ -62,7 +62,7 @@ DEFAULTS = {
 }
 
 VARIABLE_PARAM_COLUMNS = [
-    "Q_min", "Q_max", "I_min", "SS_min", "SS_max", "B_max", "N_max", "M_max", "U_max",
+    "Q_max", "I_min", "SS_max", "B_max", "N_max", "L_fuzzy_max", "M_max", "U_max", "Y_prod", "d_dist",
 ]
 
 CONSTANT_PARAM_COLUMNS = [
@@ -640,18 +640,26 @@ with st.sidebar:
         with st.expander("Ввод значений нечеткой логики и ограничений", expanded=True):
             passive_row = sidebar_df.iloc[selected_row_idx]
             passive_values = [
-                ("Q_i — объем заказа", float(passive_row["Q_min"])),
-                ("I_i — уровень запасов", float(passive_row["I_min"])),
-                ("SS_i — страховой запас", float(passive_row["SS_min"])),
-                ("B_i — объем дефицита", float(passive_row["B_max"])),
-                ("N_i — количество поставок", float(passive_row["N_max"])),
-                ("L_i — время поставки", float(passive_row["L"])),
-                ("M_i — количество транспортных рейсов", float(passive_row["M_max"])),
-                ("U_i — уровень загрузки склада и оборудования", float(passive_row["U_max"])),
-                ("Y_i — производительность склада", float(passive_row["Y_prod"])),
-                ("d_i — расстояние доставки", float(passive_row["d_dist"])),
+                ("D_i — прогнозируемый спрос", float(passive_row["D"])),
+                ("R_i^0 — нормативный уровень надежности поставщика", float(weights.get("R0", 0.95))),
+                ("C_i^0 — нормативные эксплуатационные затраты склада", float(passive_row["C"]) * max(float(passive_row["Q_min"]), 1.0) * float(weights.get("C0_factor", 0.9))),
+                ("Q^max — максимально допустимый суммарный объем заказа", float(sidebar_df["Q_max"].sum())),
+                ("SS^max — максимально допустимый суммарный страховой запас", float(sidebar_df["SS_max"].sum())),
+                ("P^max — максимально допустимый риск системы", float(sidebar_df["P"].max())),
+                ("V^max — максимально допустимые потери от дефицита", float((sidebar_df["V"] * sidebar_df["B_max"]).sum())),
+                ("E^max — максимально допустимые логистические затраты", float((sidebar_df["E"] * sidebar_df["M_max"]).sum())),
+                ("T^max — максимально допустимые транспортные расходы", float(sidebar_df["T_max"].sum())),
+                ("M — максимально допустимое количество рейсов", float(sidebar_df["M_max"].sum())),
+                ("Y_i^min — минимально допустимая производительность склада", float(passive_row["Y_min"])),
+                ("C_i^max — максимально допустимые эксплуатационные затраты", float(passive_row["C_max"])),
+                ("D_i^min", float(passive_row["D_fuzzy_min"])),
+                ("D_i^0", float(passive_row["D"])),
+                ("D_i^max", float(passive_row["D_fuzzy_max"])),
+                ("L_i^min", float(passive_row["L_fuzzy_min"])),
+                ("L_i^max", float(passive_row["L_fuzzy_max"])),
+                ("L_i^2", float(passive_row["L_fuzzy_max"])),
+                ("L_i^1", float(passive_row["L_fuzzy_min"])),
             ]
-
             for passive_idx, (label, value) in enumerate(passive_values):
                 st.number_input(
                     label,
@@ -679,14 +687,14 @@ st.write("### Оптимизационные параметры")
 column_config = {
     "id": st.column_config.NumberColumn("ID", disabled=True), "name": st.column_config.TextColumn("Наименование", required=True),
     "Q_min": st.column_config.NumberColumn("Мин. заказ (Q_min)", min_value=0.0),
-    "Q_max": st.column_config.NumberColumn("Макс. заказ (Q_max)", min_value=0.0),
-    "I_min": st.column_config.NumberColumn("Мин. запас (I_min)", min_value=0.0),
+    "Q_max": st.column_config.NumberColumn("Q_i — объем заказа", min_value=0.0),
+    "I_min": st.column_config.NumberColumn("I_i — уровень запасов", min_value=0.0),
     "SS_min": st.column_config.NumberColumn("Мин. страх. запас (SS_min)", min_value=0.0),
-    "SS_max": st.column_config.NumberColumn("Макс. страх. запас (SS_max)", min_value=0.0),
-    "B_max": st.column_config.NumberColumn("Макс. дефицит (B_max)", min_value=0.0),
-    "N_max": st.column_config.NumberColumn("Макс. поставок (N_max)", min_value=0.0),
-    "M_max": st.column_config.NumberColumn("Макс. рейсов (M_max)", min_value=0.0),
-    "U_max": st.column_config.NumberColumn("Макс. загрузка (U_max)", min_value=0.0),
+    "SS_max": st.column_config.NumberColumn("SS_i — страховой запас", min_value=0.0),
+    "B_max": st.column_config.NumberColumn("B_i — объем дефицита", min_value=0.0),
+    "N_max": st.column_config.NumberColumn("N_i — количество поставок", min_value=0.0),
+    "M_max": st.column_config.NumberColumn("M_i — количество транспортных рейсов", min_value=0.0),
+    "U_max": st.column_config.NumberColumn("U_i — уровень загрузки склада и оборудования", min_value=0.0),
     "C": st.column_config.NumberColumn("Цена (C)", min_value=0.0),
     "H": st.column_config.NumberColumn("Хранение (H)", min_value=0.0),
     "S": st.column_config.NumberColumn("Оформление (S)", min_value=0.0),
@@ -699,17 +707,17 @@ column_config = {
     "D_fuzzy_max": st.column_config.NumberColumn("Нечеткий спрос max", min_value=0.0),
     "L": st.column_config.NumberColumn("Срок поставки (L)", min_value=0.0),
     "L_fuzzy_min": st.column_config.NumberColumn("Нечеткий срок min", min_value=0.0),
-    "L_fuzzy_max": st.column_config.NumberColumn("Нечеткий срок max", min_value=0.0),
+    "L_fuzzy_max": st.column_config.NumberColumn("L_i — время поставки", min_value=0.0),
     "W_i": st.column_config.NumberColumn("Вместимость (W_i)", min_value=0.0),
     "V": st.column_config.NumberColumn("Потери дефицита (V)", min_value=0.0),
     "E": st.column_config.NumberColumn("Экспл. затраты (E)", min_value=0.0),
     "Z": st.column_config.NumberColumn("Риск поставщика (Z)", min_value=0.0),
-    "d_dist": st.column_config.NumberColumn("Расстояние (d)", min_value=0.0),
+    "d_dist": st.column_config.NumberColumn("d_i — расстояние доставки", min_value=0.0),
     "T_max": st.column_config.NumberColumn("Макс. транспорт (T_max)", min_value=0.0),
     "A": st.column_config.NumberColumn("Стоимость/км (A)", min_value=0.0),
     "G": st.column_config.NumberColumn("Погрузка-разгрузка (G)", min_value=0.0),
     "Fi_cost": st.column_config.NumberColumn("Оборудование (Fi)", min_value=0.0),
-    "Y_prod": st.column_config.NumberColumn("Производительность (Y)", min_value=0.0),
+    "Y_prod": st.column_config.NumberColumn("Y_i — производительность склада", min_value=0.0),
     "Y_min": st.column_config.NumberColumn("Мин. производительность", min_value=0.0),
     "C_max": st.column_config.NumberColumn("Макс. цена (C_max)", min_value=0.0),
 }
